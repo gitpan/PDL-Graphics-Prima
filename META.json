@@ -1,10 +1,10 @@
 {
-   "abstract" : "an interactive graph widget for PDL and Prima",
+   "abstract" : "an interactive plotting widget and library for PDL and Prima",
    "author" : [
       "David Mertens (dcmertens.perl@gmail.com)"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "Module::Build version 0.38, CPAN::Meta::Converter version 2.112150",
+   "generated_by" : "Module::Build version 0.38, CPAN::Meta::Converter version 2.113640",
    "license" : [
       "perl_5"
    ],
@@ -31,7 +31,7 @@
    "provides" : {
       "PDL::Graphics::Prima" : {
          "file" : "lib/PDL/Graphics/Prima.pm",
-         "version" : "0.04"
+         "version" : "0.05"
       },
       "PDL::Graphics::Prima::Axis" : {
          "file" : "lib/PDL/Graphics/Prima/Axis.pm",
@@ -176,5 +176,5 @@
          "http://dev.perl.org/licenses/"
       ]
    },
-   "version" : "0.04"
+   "version" : "0.05"
 }
