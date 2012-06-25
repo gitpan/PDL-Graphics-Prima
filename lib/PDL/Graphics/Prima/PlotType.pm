@@ -1152,7 +1152,7 @@ sub get_bin_edges {
 	my @dims = $xs->dims;
 	$dims[0]++;
 	my $widths = $xs(1,) - $xs(0,);
-	my $edges = xvals(@dims) * $widths + $xs(0,);
+	my $edges = xvals(@dims) * $widths + $xs(0,) - $widths/2;
 	# working here - croak on bad bounds?
 	
 	# Store these bin edges if the underlying dataset is static:
@@ -1194,13 +1194,15 @@ sub compute_collated_min_max_for {
 	my ($xs, $ys) = $self->dataset->get_data;
 	# For the y min/max, get the y-data, the padding, and the baseline:
 	if ($axis_name eq 'y') {
+		my $to_check = $ys->append(zeroes(1) + $self->{baseline});
 		my $top_padding = $lineWidths;
-		$top_padding += $self->{topPadding} if any $ys > $self->{baseline};
+		$top_padding += $self->{topPadding} if any $to_check > $self->{baseline};
 		my $bottom_padding = $lineWidths;
-		$bottom_padding += $self->{topPadding} if any $ys < $self->{baseline};
-		return PDL::collate_min_max_wrt_many($ys, $bottom_padding
-			, $ys, $top_padding, $pixel_extent
-			, $xs, values %properties);
+		$bottom_padding += $self->{topPadding} if any $to_check < $self->{baseline};
+		
+		return PDL::collate_min_max_wrt_many($to_check, $bottom_padding
+			, $to_check, $top_padding, $pixel_extent
+			, $xs->append(zeroes(1)), values %properties);
 	}
 	# For the x min/max, get the bin edges and collate by line width:
 	else {
@@ -2115,30 +2117,6 @@ I have lots of things that need to happen to improve this library.
 
 Are string-properties OK, or should they be constants? (threadlike, for example)
 Should properties be threadable?
-
-=item Some plot types are characteristically different
-
-I need to split the plotTypes up based upon the nature of the data.
-For example, ColorGrids fundamentally works with gridded 2d data, and
-should be put into a different group from Lines, which fundamentally works
-with 1d time series. This also suggests a collection of plot types for 0d data,
-by which I guess I mean sets of numbers. In that situation, cumulative
-distibution plots and probability distribution plots (i.e. histograms)
-would be good.
-
-here's a potential naming scheme for the different plot types that I can
-think of:
-
- pdist::CDF - plot distribution, cumulative distribution function
- ppair::Lines - plot sequence, Lines
- pgrid::Colors - plot grid, Colors (ColorGrid)
-
-This would then be associated with different dataSets, which would have
-constructor names like:
-
- ds::Set
- ds::Pair
- ds::Grid
 
 =item Add support for 3d Plots
 

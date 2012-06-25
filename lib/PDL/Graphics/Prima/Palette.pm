@@ -139,9 +139,10 @@ sub new {
 sub apply {
 	my ($self, $data) = @_;
 	
-	# Get the data and scale it from zero to one:
+	# Get the data and scale it from zero to one, taking care to correctly
+	# handle collections of identical values:
 	my ($min, $max) = $data->minmax;
-	my $scaled_data = ($data - $min) / ($max - $min);
+	my $scaled_data = $min == $max ? $data->zeroes : ($data - $min) / ($max - $min);
 	
 	# Compute the associated hue, saturation, and vaue:
 	my $h = $scaled_data * ($self->{h_stop} - $self->{h_start})
@@ -151,7 +152,9 @@ sub apply {
 	my $v = $scaled_data * ($self->{v_stop} - $self->{v_start})
 		+ $self->{v_start};
 	
-	return $h->cat($s, $v)->mv(-1,0)->hsv_to_rgb->rgb_to_color;
+	# changed $h->cat($s, $v) to PDL->pdl($h, $s, $v) because it's robust
+	# against empty piddles.
+	return PDL->pdl($h, $s, $v)->mv(-1,0)->hsv_to_rgb->rgb_to_color;
 }
 
 =head1 Special Palettes

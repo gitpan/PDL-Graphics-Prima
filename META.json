@@ -4,7 +4,7 @@
       "David Mertens (dcmertens.perl@gmail.com)"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "Module::Build version 0.38, CPAN::Meta::Converter version 2.113640",
+   "generated_by" : "Module::Build version 0.3901, CPAN::Meta::Converter version 2.120630",
    "license" : [
       "perl_5"
    ],
@@ -16,7 +16,7 @@
    "prereqs" : {
       "configure" : {
          "requires" : {
-            "Module::Build" : "0.38"
+            "Module::Build" : "0.39"
          }
       },
       "runtime" : {
@@ -31,7 +31,7 @@
    "provides" : {
       "PDL::Graphics::Prima" : {
          "file" : "lib/PDL/Graphics/Prima.pm",
-         "version" : "0.05"
+         "version" : "0.07"
       },
       "PDL::Graphics::Prima::Axis" : {
          "file" : "lib/PDL/Graphics/Prima/Axis.pm",
@@ -176,5 +176,5 @@
          "http://dev.perl.org/licenses/"
       ]
    },
-   "version" : "0.05"
+   "version" : "0.07"
 }
