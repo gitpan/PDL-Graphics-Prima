@@ -4,7 +4,7 @@ author:
   - 'David Mertens (dcmertens.perl@gmail.com)'
 build_requires: {}
 configure_requires:
-  Module::Build: 0.39
+  Module::Build: 0.28
 dynamic_config: 1
 generated_by: 'Module::Build version 0.3901, CPAN::Meta::Converter version 2.120630'
 license: perl
@@ -15,7 +15,7 @@ name: PDL-Graphics-Prima
 provides:
   PDL::Graphics::Prima:
     file: lib/PDL/Graphics/Prima.pm
-    version: 0.07
+    version: 0.08
   PDL::Graphics::Prima::Axis:
     file: lib/PDL/Graphics/Prima/Axis.pm
     version: 0
@@ -122,7 +122,9 @@ requires:
   PDL: v2.4.0
   PDL::Drawing::Prima: 0.01
   Prima: 1.32
-  perl: v5.10.0
+  perl: v5.8.0
 resources:
+  bugtracker: http://github.com/run4flat/PDL-Graphics-Prima/issues
   license: http://dev.perl.org/licenses/
-version: 0.07
+  repository: http://github.com/run4flat/PDL-Graphics-Prima
+version: 0.08
