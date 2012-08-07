@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package PDL::Graphics::Prima;
-our $VERSION = 0.08;
+our $VERSION = 0.09;
 
 package Prima::Plot;
 use PDL::Lite;
@@ -47,7 +47,7 @@ PDL::Graphics::Prima - an interactive plotting widget and library for PDL and Pr
  cross_plot($y);       cross_plot($x, $y);
  asterisk_plot($y);    asterisk_plot($x, $y);
  
- # Sketch the sine function, initial x from 0 to 10:
+ # Sketch the sine function for x initially from 0 to 10:
  func_plot(0 => 10, \&PDL::sin);
  
  
@@ -190,7 +190,7 @@ sub init {
 		timeout => $profile{replotDuration},
 		onTick => sub {
 			$_[0]->stop;
-			$self->notify('Paint');
+			$self->repaint;
 		}
 	);
 	
@@ -571,22 +571,10 @@ sub on_paint {
 	# Clip the widget before we begin drawing
 	$canvas->clipRect($clip_left, $clip_bottom, $clip_right, $clip_top);
 	
-	# backup the drawing parameters:
-	# working here - consider writing PDL::Drawing::Prima to back these up
-	# for me automatically so I don't have to do it here
-	# also, consider a better way than listing them here explicitly
-	my @to_backup = qw(color backColor linePattern lineWidth lineJoin
-			lineEnd rop rop2);
-	my %backups = map {$_ => $canvas->$_} (@to_backup);
-	
 	# Draw the data, sorted by key name:
 	foreach my $key (sort keys %{$self->{dataSets}}) {
 		next if $key eq 'widget';
-		my $dataset = $self->{dataSets}->{$key};
-		$dataset->draw($canvas);
-		
-		# Restore the drawing parameters after each draw function:
-		$canvas->set(%backups);
+		$self->{dataSets}->{$key}->draw($canvas);
 	}
 
 	# Draw the zoom-rectangle, if there is one
@@ -837,18 +825,16 @@ sub on_mouseup {
 sub get_image {
 	my $self = shift;
 	
-# Not working:
-#	# Build a prima image canvas and draw to it:
-#	my $image = Prima::Image->create(
-#		height => $self->height,
-#		width => $self->width,
-##		size => [$self->size],
-#		backColor => $self->backColor,
-#	) or die "Can't create an image!\n";
-#	$self->on_paint($image);
-#	return $image;
-
-	return $::application->get_image($self->client_to_screen($self->origin), $self->size);
+	# Build a prima image canvas and draw to it:
+	my $image = Prima::Image->create(
+		height => $self->height,
+		width => $self->width,
+		backColor => $self->backColor,
+	) or die "Can't create an image!\n";
+	$image->begin_paint or die "Can't draw on image";
+	$self->on_paint($image);
+	$image->end_paint;
+	return $image;
 }
 
 use Prima::PS::Drawable;

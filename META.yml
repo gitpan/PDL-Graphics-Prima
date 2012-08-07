@@ -15,7 +15,7 @@ name: PDL-Graphics-Prima
 provides:
   PDL::Graphics::Prima:
     file: lib/PDL/Graphics/Prima.pm
-    version: 0.08
+    version: 0.09
   PDL::Graphics::Prima::Axis:
     file: lib/PDL/Graphics/Prima/Axis.pm
     version: 0
@@ -120,11 +120,11 @@ provides:
     version: 0
 requires:
   PDL: v2.4.0
-  PDL::Drawing::Prima: 0.01
+  PDL::Drawing::Prima: 0.07
   Prima: 1.32
   perl: v5.8.0
 resources:
   bugtracker: http://github.com/run4flat/PDL-Graphics-Prima/issues
   license: http://dev.perl.org/licenses/
   repository: http://github.com/run4flat/PDL-Graphics-Prima
-version: 0.08
+version: 0.09

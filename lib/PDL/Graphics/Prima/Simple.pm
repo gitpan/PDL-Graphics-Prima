@@ -38,7 +38,7 @@ PDL::Graphics::Prima
  cross_plot($y);       cross_plot($x, $y);
  asterisk_plot($y);    asterisk_plot($x, $y);
  
- # Sketch the sine function, initial x from 0 to 10:
+ # Sketch the sine function for x initially from 0 to 10:
  func_plot(0 => 10, \&PDL::sin);
  
  
@@ -1294,7 +1294,8 @@ This kind of immediate feedback can be very useful. It is even possible to
 capture keyboard events and respond to user interaction this way. But B<please>,
 don't do that. If you need any substantial amount of user interaction, you
 would do much better to learn to create a Prima application with buttons, lists,
-and input lines, along with the Plot widget. For that, see L<PDL::Graphics::Prima>.
+and input lines, along with the Plot widget. For that, see
+L<PDL::Graphics::Prima::InteractiveTut>.
 
 =cut
 
