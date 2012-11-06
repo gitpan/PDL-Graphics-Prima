@@ -75,6 +75,7 @@ These include accessing the associated widget and drawing the data.
 =cut
 
 package PDL::Graphics::Prima::DataSet;
+use Carp;
 
 =item widget
 
@@ -101,12 +102,12 @@ supplied to the dataset.
 
 # Calls all the drawing functions for the plotTypes for this dataset:
 sub draw {
-	my ($dataset, $canvas) = @_;
+	my ($dataset, $canvas, $ratio) = @_;
 	my $widget = $dataset->widget;
 	
 	# Call each plot type's drawing function, in the order specified:
 	foreach my $plotType (@{$dataset->{plotTypes}}) {
-		$plotType->draw($canvas);
+		$plotType->draw($canvas, $ratio);
 	}
 }
 
@@ -165,7 +166,7 @@ sub compute_collated_min_max_for {
 
 =item new
 
-This is the unversal constructor that is called by the short-name constructors
+This is the universal constructor that is called by the short-name constructors
 introduced below. This handles the uniform packaging of plotTypes (for
 example, allowing the user to say C<plotType => ppair::Diamonds> instead of
 the more verbose C<plotTypes => [ppair::Diamonds]>). In general, you (the
@@ -275,6 +276,24 @@ sub init {
 	die "The class for $self does not define an init function!";
 }
 
+=item change_data
+
+Sets the data to the given data by calling the derived class's C<_change_data>
+method. Unlike C<_change_data>, this method also issues a C<ChangeData>
+notification to the widget. This means that you should only use this method
+once the dataset has been associated with a widget. Each class expects
+different arguments, so you should look at the class's documentation for
+details on what to send to the method.
+
+=cut
+
+# Sets the data and issues a notification
+sub change_data {
+	my $self = shift;
+	$self->_change_data(@_);
+	$self->widget->notify('ChangeData', $self);
+}
+
 =back
 
 =cut
@@ -286,8 +305,6 @@ sub init {
 package PDL::Graphics::Prima::DataSet::Set;
 use base 'PDL::Graphics::Prima::DataSet';
 use Carp;
-use strict;
-use warnings;
 
 =head2 Sets
 
@@ -346,15 +363,8 @@ sub init {
 	# Check that the plotTypes are valid:
 	$self->check_plot_types(@{$self->{plotTypes}});
 	
-	# Ensure the data is a piddle:
-	eval {
-		$self->{data} = PDL::Core::topdl($self->{data});
-	};
-	return unless $@;
-	
-	croak('For Set datasets, the data must be piddles '
-		. 'or scalars that pdl() knows how to process');
-	
+	# Set the data (without notifications)
+	$self->_change_data($self->{data});
 }
 
 =item get_data
@@ -385,6 +395,28 @@ sub get_data {
 	return $_[0]->{data};
 }
 
+=item change_data
+
+Changes the data to the piddle passed in. For example,
+
+ if ($heights->changed) {
+     my $new_heights = $heights->data;
+     $heights_plot->dataSets->{'heights'}->change_data($new_heights);
+ }
+
+=cut
+
+# Notification free method
+sub _change_data {
+	my ($self, $data) = @_;
+	
+	# Ensure the data is a piddle:
+	eval {
+		$self->{data} = PDL::Core::topdl($data);
+		1;
+	} or croak('For Set datasets, the data must be piddles '
+		. 'or scalars that pdl() knows how to process');
+}
 
 =back
 
@@ -397,8 +429,6 @@ sub get_data {
 package PDL::Graphics::Prima::DataSet::Pair;
 use base 'PDL::Graphics::Prima::DataSet';
 use Carp 'croak';
-use strict;
-use warnings;
 
 =head2 Pair
 
@@ -457,15 +487,8 @@ sub init {
 	# Check that the plotTypes are valid:
 	$self->check_plot_types(@{$self->{plotTypes}});
 	
-	# Ensure the data are piddles:
-	eval {
-		$self->{x} = PDL::Core::topdl($self->{x});
-		$self->{y} = PDL::Core::topdl($self->{y});
-	};
-	return unless $@;
-	
-	croak('For pairwise datasets, the x- and y-data must be piddles '
-		. 'or scalars that pdl() knows how to process');
+	# Set the data
+	$self->_change_data($self->{x}, $self->{y});
 }
 
 =item get_xs, get_ys, get_data
@@ -493,11 +516,31 @@ values of the x- and y- data to actual pixel positions in the widget.
 =cut
 
 sub get_data_as_pixels {
-	my ($dataset) = @_;
+	my ($dataset, $ratio) = @_;
 	my $widget = $dataset->widget;
 	
 	my ($xs, $ys) = $dataset->get_data;
-	return ($widget->x->reals_to_pixels($xs), $widget->y->reals_to_pixels($ys));
+	return ($widget->x->reals_to_pixels($xs, $ratio), $widget->y->reals_to_pixels($ys, $ratio));
+}
+
+=item change_data
+
+Changes the data to the piddles passed in. For example,
+
+ $scatter_plot->dataSets->{'data'}->change_data($xs, $ys);
+
+=cut
+
+sub _change_data {
+	my ($self, $x, $y) = @_;
+	
+	# Ensure the data are piddles:
+	eval {
+		$self->{x} = PDL::Core::topdl($x);
+		$self->{y} = PDL::Core::topdl($y);
+		1;
+	} or croak('For pairwise datasets, the x- and y-data must be piddles '
+		. 'or scalars that pdl() knows how to process');
 }
 
 =back
@@ -507,15 +550,13 @@ sub get_data_as_pixels {
 # working here - create an OrderedSet, which only requires a single set of
 # data and uses counting numbers for the "x" values
 
-###############################################################################
-#                                    Grids                                    #
-###############################################################################
+################################################################################
+#                                     Grid                                     #
+################################################################################
 
 package PDL::Graphics::Prima::DataSet::Grid;
 use base 'PDL::Graphics::Prima::DataSet';
 use Carp 'croak';
-use strict;
-use warnings;
 use PDL;
 
 =head2 Grids
@@ -584,7 +625,7 @@ two elements containing the same sorts of data as the C<bounds> array.
 The value associated with C<x_centers> (or C<y_centers>) should be a piddle with
 increasing values of x (or y) that give the mid-points of the data. For example,
 if we have a matrix with shape (3, 4), C<x_centers> would have 3 elements and
-C<y_edges> would have 4 elements:
+C<y_centers> would have 4 elements:
 
     -------------------
  y3 | d03 | d13 | d23 |
@@ -671,12 +712,8 @@ sub init {
 	# Check that the plotTypes are valid:
 	$self->check_plot_types(@{$self->{plotTypes}});
 	
-	# Ensure the data is a piddle:
-	eval {
-		$self->{data} = PDL::Core::topdl($self->{data});
-		1;
-	} or croak('For Grid datasets, the data must be piddles '
-		. 'or scalars that pdl() knows how to process');
+	# Set the data and the bounders
+	$self->_change_data($self->{data});
 	
 	# Make sure that we have bounds, or some combination of x_bounds, y_centers,
 	# etc
@@ -686,7 +723,7 @@ sub init {
 	} keys %$self;
 	
 	# Nothing can be combined with 'bounds':
-	croak("Cannot combined simple 'bounds' with more specific bounders")
+	croak("Cannot combine simple 'bounds' with more specific bounders")
 		if @bounders > 1 and grep {$_ eq 'bounds'} @bounders;
 	
 	# Handle simple bounds
@@ -818,6 +855,26 @@ Returns the piddle containing the data.
 
 sub get_data { return $_[0]->{data} }
 
+=item change_data
+
+Changes the data to the piddle passed in. For example,
+
+ $map_plot->dataSets->{'intensity'}->change_data($new_intensity);
+
+=cut
+
+sub _change_data {
+	my ($self, $data) = @_;
+	
+	# Ensure the data is a piddle:
+	eval {
+		$self->{data} = PDL::Core::topdl($data);
+		1;
+	} or croak('For Grid datasets, the data must be piddles '
+		. 'or scalars that pdl() knows how to process');
+}
+
+
 
 =item guess_scaling_for
 
@@ -866,15 +923,48 @@ sub guess_scaling_for {
 #                                   Image                                   #
 #############################################################################
 
-=head2 Image
-
-=cut
-
 package PDL::Graphics::Prima::DataSet::Image;
 use base 'PDL::Graphics::Prima::DataSet::Grid';
 use Carp 'croak';
-use strict;
-use warnings;
+
+=head2 Image
+
+Images are like Grids (they are derived from Grids, actually) but they have
+a specified color format. Since they have a color format, this means that
+they need to hold information for different aspects of each color, so they
+typically have one more dimension than Grids. That is, where a grid might
+have dimensions M x N, an rgb or hsv image would have dimensions 3 x M x N.
+
+The default image format is rgb. Currently supported image formats are
+rgb (red-green-blue), hsv (hugh-saturation-value), and prima (Prima's internal
+color format, which is a packed form of rgb).
+
+As Images are derived from Grids, any method you can call on a Grid you can
+also call on an Image. Differences and details specific to Images include:
+
+=over
+
+=item ds::Image - short-name constructor
+
+=for sig
+
+    ds::Image($image, option => value, ...)
+
+Creates an Image dataset. A particularly important key is the C<color_format>
+key, which indicates the format of the C<$image> piddle. When it comes to
+drawing the image, the data will be converted to a set of Prima colors,
+which means that the first dimension will be reduced away. Values associated
+with keys should be thread-compatible with the dimensions starting from the
+second dimension, so if your image has dims 3 x M x N, values associated
+with your various keys should be thread-compatible with an M x N piddle.
+
+Note that color formats are case insensitive. At the moment there is no way
+to add new color formats, but you should expect a color format API to come
+at some point in the not-distant future. It will very likely make use of
+L<PDL::Graphics::ColorSpace>, so if you want your own special color format
+to be used for Images, you should contribute to that project.
+
+=cut
 
 sub ds::Image {
 	croak('ds::Image expects data and then key => value pairs, but you'
@@ -892,23 +982,31 @@ my %color_convert_func_for = (
 	rgb => sub { return $_[0]->mv(-1,0)->rgb_to_color },
 	hsv => sub { return $_[0]->mv(-1,0)->hsv_to_rgb->rgb_to_color },
 );
-my @known_formats = keys %color_convert_func_for;
 
 sub expected_plot_class {'PDL::Graphics::Prima::PlotType::Image'}
 sub default_plot_type { pimage::Basic() }
 
-=pod
+=item change_data
 
-Color formats are case insensitive; default is C<rgb>
+Sets the image to the new image data. Expects a piddle with the new data
+and an optional format specification. If no specification is given, the
+current format is used.
 
 =cut
 
-sub init {
-	my $self = shift;
+sub _change_data {
+	my ($self, $image, $format) = @_;
+	$format = $self->{color_format} unless defined $format;
+	
+	$format = lc $format;
+	# Make sure a valid color format is given:
+	croak("'$format' is not a known color format")
+		unless exists $color_convert_func_for{$format};
+	$self->{color_format} = $format;
 	
 	# Ensure the data is a piddle:
 	eval {
-		$self->{data} = PDL::Core::topdl($self->{data});
+		$self->{data} = PDL::Core::topdl($image);
 		1;
 	} or croak('For Image datasets, the data must be piddles '
 		. 'or scalars that pdl() knows how to process');
@@ -922,16 +1020,16 @@ sub init {
 		if $self->{color_format} and $self->{color_format} eq 'prima'
 				and $self->{data}->dim(0) ne 1;
 	$self->{data} = $self->{data}->mv(0,-1);
-	
-	# Initialize the parent class:
-	$self->SUPER::init;
+}
+
+sub init {
+	my $self = shift;
 	
 	# Assume RGB if no color format is given:
 	$self->{color_format} ||= 'rgb';
-	$self->{color_format} = lc $self->{color_format};
-	# Make sure a valid color format is given:
-	croak($self->{color_format} . ' is not a known color format')
-		unless grep { lc $self->{color_format} eq $_ } @known_formats;
+	
+	# Initialize the parent class:
+	$self->SUPER::init;
 }
 
 # Converts the current data into a Prima color format.
@@ -965,8 +1063,6 @@ package PDL::Graphics::Prima::DataSet::Func;
 our @ISA = qw(PDL::Graphics::Prima::DataSet::Pair);
 
 use Carp 'croak';
-use strict;
-use warnings;
 
 =over
 
@@ -1007,17 +1103,57 @@ sub ds::Func {
 sub init {
 	my $self = shift;
 	
-	croak('Func datasets require a function reference, but what you supplied '
-		. 'is not a function reference')
-		unless ref($self->{func}) and ref($self->{func}) eq 'CODE';
-	
 	# Supply a default plot type:
 	$self->{plotTypes} = [ppair::Lines] unless exists $self->{plotTypes};
 	
 	# Set the default number of data points (for evaluated data) to 200:
 	$self->{N_points} ||= 200;
-	croak("N_points must be a positive number")
-		unless $self->{N_points} =~ /^\d+$/ and $self->{N_points} > 0;
+	
+	# Ensure that they provided *something* for the func key
+	croak('You must supply a function under the "func" key')
+		unless exists $self->{func};
+	
+	# Set the function and number of points
+	$self->_change_data($self->{func}, $self->{N_points});
+}
+
+=item change_data
+
+Sets the function and/or the number of points to evaluate. The basic usage
+looks like this:
+
+ $plot->dataSets->{'curve'}->change_data(\&some_func, $N_points);
+
+Either of the arguments can be undefined if you want to change only the
+other. That means that you can change the function without changing the
+number of evaluation points like this:
+
+ $plot->dataSets->{'curve'}->change_data(\&some_func);
+
+and you can change the number of evaluation points without changing the
+function like this:
+
+ $plot->dataSets->{'curve'}->change_data(undef, $N_points);
+
+=cut
+
+sub _change_data {
+	my ($self, $func_ref, $N_points) = @_;
+	
+	if (defined $func_ref) {
+		croak('Func datasets require a function reference, but what you '
+			. 'supplied is not a function reference')
+			unless ref($func_ref) and ref($func_ref) eq 'CODE';
+		
+		$self->{func} = $func_ref;
+	}
+	
+	if (defined $N_points) {
+		croak("N_points must be a positive number")
+			unless $N_points =~ /^\d+$/ and $N_points > 0;
+		
+		$self->{N_points} = $N_points;
+	}
 }
 
 =item get_xs, get_ys
@@ -1095,6 +1231,68 @@ sub compute_collated_min_max_for {
 	my $collated_max = PDL::cat(@max_collection)->mv(-1,0)->maximum;
 	
 	return ($collated_min, $collated_max);
+}
+
+=back
+
+=cut
+
+=head2 Annotation
+
+PDL::Graphics::Prima provides a generic annotation dataset that is used for
+adding various annotations to your plots. It expects a list of key/value pairs
+where the keys are the names you give to your annotations and the values are
+annotation plotType objects.
+
+=cut
+
+###############################################################################
+#                                  Annotation                                  #
+###############################################################################
+
+package PDL::Graphics::Prima::DataSet::Annotation;
+our @ISA = qw(PDL::Graphics::Prima::DataSet);
+
+use Carp 'croak';
+
+=over
+
+=item ds::Note - short-name constructor for annotations
+
+=for sig
+
+    ds::Note(plotType, plotType, ...)
+
+The short-name constructor to create annotations. For example, 
+
+=for example
+
+ ds::Note(
+     pnote::Region(
+         # args here
+     ),
+     ...
+ );
+
+=cut
+
+sub ds::Note {
+	return PDL::Graphics::Prima::DataSet::Annotation->new(plotTypes => [@_]);
+}
+
+sub expected_plot_class {'PDL::Graphics::Prima::PlotType::Annotation'}
+
+
+
+sub init {
+	my $self = shift;
+	
+	# Check that the plotTypes are valid:
+	$self->check_plot_types(@{$self->{plotTypes}});
+}
+
+sub change_data {
+	carp("Annotations do not have data that can be changed; ignoring");
 }
 
 =back

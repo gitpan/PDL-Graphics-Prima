@@ -31,13 +31,17 @@
    "provides" : {
       "PDL::Graphics::Prima" : {
          "file" : "lib/PDL/Graphics/Prima.pm",
-         "version" : "0.09"
+         "version" : "0.1"
       },
       "PDL::Graphics::Prima::Axis" : {
          "file" : "lib/PDL/Graphics/Prima/Axis.pm",
          "version" : 0
       },
       "PDL::Graphics::Prima::DataSet" : {
+         "file" : "lib/PDL/Graphics/Prima/DataSet.pm",
+         "version" : 0
+      },
+      "PDL::Graphics::Prima::DataSet::Annotation" : {
          "file" : "lib/PDL/Graphics/Prima/DataSet.pm",
          "version" : 0
       },
@@ -73,6 +77,30 @@
          "file" : "lib/PDL/Graphics/Prima/Palette.pm",
          "version" : 0
       },
+      "PDL::Graphics::Prima::PlotType" : {
+         "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
+         "version" : 0
+      },
+      "PDL::Graphics::Prima::PlotType::Annotation" : {
+         "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
+         "version" : 0
+      },
+      "PDL::Graphics::Prima::PlotType::Annotation::Box" : {
+         "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
+         "version" : 0
+      },
+      "PDL::Graphics::Prima::PlotType::Annotation::Line" : {
+         "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
+         "version" : 0
+      },
+      "PDL::Graphics::Prima::PlotType::Annotation::Region" : {
+         "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
+         "version" : 0
+      },
+      "PDL::Graphics::Prima::PlotType::Annotation::Text" : {
+         "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
+         "version" : 0
+      },
       "PDL::Graphics::Prima::PlotType::CallBack" : {
          "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
          "version" : 0
@@ -82,6 +110,10 @@
          "version" : 0
       },
       "PDL::Graphics::Prima::PlotType::Grid::Matrix" : {
+         "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
+         "version" : 0
+      },
+      "PDL::Graphics::Prima::PlotType::Image" : {
          "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
          "version" : 0
       },
@@ -133,6 +165,10 @@
          "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
          "version" : 0
       },
+      "PDL::Graphics::Prima::PlotType::Role::Histogram" : {
+         "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
+         "version" : 0
+      },
       "PDL::Graphics::Prima::PlotType::Role::Raster" : {
          "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
          "version" : 0
@@ -142,6 +178,10 @@
          "version" : 0
       },
       "PDL::Graphics::Prima::PlotType::Set::CDF" : {
+         "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
+         "version" : 0
+      },
+      "PDL::Graphics::Prima::PlotType::Set::Histogram" : {
          "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
          "version" : 0
       },
@@ -182,5 +222,5 @@
          "url" : "http://github.com/run4flat/PDL-Graphics-Prima"
       }
    },
-   "version" : "0.09"
+   "version" : "0.1"
 }

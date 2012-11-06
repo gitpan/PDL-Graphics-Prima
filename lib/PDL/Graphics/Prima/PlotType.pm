@@ -141,9 +141,11 @@ sub compute_collated_min_max_for {
 	my $lineWidths = $properties{lineWidths};
 	$lineWidths = $self->widget->lineWidth unless defined $lineWidths;
 	delete $properties{lineWidths};
-	# get the rest of the piddles; we don't need their names and order is
-	# not important as this is for bad value checking:
-	my @prop_piddles = values %properties;
+	# get the rest of the piddles, which are associated with plural keys
+	my @prop_piddles;
+	while(my ($k, $v) = each %properties) {
+		push @prop_piddles, $v if $k =~ /s$/;
+	}
 	
 	# Get the data:
 	my $set = $self->dataset->get_data;
@@ -174,7 +176,7 @@ sub compute_collated_min_max_for {
 
 # This draws the CDFS:
 sub draw {
-	my ($self, $canvas) = @_;
+	my ($self, $canvas, $ratio) = @_;
 	
 	my %properties = $self->generate_properties(
 		@PDL::Drawing::Prima::polylines_props);
@@ -182,28 +184,202 @@ sub draw {
 	# Retrieve the data from the dataset and sort:
 	my $xs = $self->dataset->get_data->qsort;
 	# Compute the associated heights:
-	my $ys = $xs->xlinvals;
+	my $ys = $xs->xvals;
 	$ys -= $xs->ngoodover->dummy(0) if not $self->{increasing};
-	$ys /= $xs->maximum->dummy(0) if $self->{normalized};
+	$ys /= $ys->maximum->dummy(0) if $self->{normalized};
 	
 	# Convert these xs and ys to pixels:
-	$xs = $self->widget->x->reals_to_pixels($xs);
-	$ys = $self->widget->y->reals_to_pixels($ys);
+	$xs = $self->widget->x->reals_to_pixels($xs, $ratio);
+	$ys = $self->widget->y->reals_to_pixels($ys, $ratio);
 	
 	# Draw the curves:
 	$canvas->pdl_polylines($xs, $ys, %properties);
 }
 
 
-#############################################
-# PDL::Graphics::Prima::PlotType::Set::Hist #
-#############################################
+###################################################
+# PDL::Graphics::Prima::PlotType::Role::Histogram #
+###################################################
+
+# A role that implements many things needed for histogram drawing
+package PDL::Graphics::Prima::PlotType::Role::Histogram;
+use Carp;
+
+
+sub initialize {
+	my $self = shift;
+	
+	# Default to an upper padding of of 10 pixels:
+	$self->{topPadding} = 10 unless defined $self->{topPadding};
+	croak("topPadding must be a nonnegative integer")
+		unless $self->{topPadding} =~ /^\d+$/ and $self->{topPadding} >= 0;
+	
+	# Make sure we have a default baseline:
+	$self->{baseline} = 0 unless defined $self->{baseline};
+	$self->{baseline} += 0;
+}
+
+##################################################
+# PDL::Graphics::Prima::PlotType::Set::Histogram #
+##################################################
 
 =item pset::Hist
 
 working here
 
+This is still a work in progress and these are just my notes.
+
+ baseline   => SCALAR (0)
+ topPadding => SCALAR (10)
+ 
+ binning    => 'lin[ear]', 'log[arithmic]', \&funcref
+ nbins      => SCALAR (20)
+ min        => SCALAR (undef, i.e. data-min)
+ max        => SCALAR (undef, i.e. data-max)
+ truncate   => BOOLEAN ('', i.e. false)
+
 =cut
+
+package PDL::Graphics::Prima::PlotType::Set::Histogram;
+use Carp;
+
+# Install the short name constructor:
+sub pset::Histogram {
+	PDL::Graphics::Prima::PlotType::Set::Histogram->new(@_);
+}
+
+# The histogram initializer ensures that the top padding is set to a reasonable
+# value (defaults to 5 pixels):
+sub initialize {
+	my $self = shift;
+	$self->SUPER::initialize(@_);
+	PDL::Graphics::Prima::PlotType::Role::Histogram::initialize($self);
+}
+
+
+# Returns user-supplied or computed bin-edge data.
+sub get_bin_edges {
+	# Return the bin-edges if we have an internal copy of them:
+	return $_[0]->{binEdges} if exists $_[0]->{binEdges};
+	
+	my ($self) = @_;
+	
+	# Compute linear bin edges if none are supplied:
+	my $xs = $self->dataset->get_xs;
+	my @dims = $xs->dims;
+	@dims > 0 or @dims = (1);
+	$dims[0]++;
+	# The widths are based on the left and right values of x, unless
+	# there is only one x-entry, in which case we have a degeneracy
+	# problem
+	my $edges;
+	if ($dims[0] > 2) {
+		my $widths = $xs(1,) - $xs(0,);
+		$edges = xvals(@dims) * $widths + $xs(0,) - $widths/2;
+	}
+	elsif ($dims[0] == 2) {
+		# Set the default width to half the x-value
+		my $widths = $xs / 2;
+		# If the x-value is zero, set the width to 1
+		$widths->where($widths == 0) .= 1;
+		$edges = xvals(@dims) * $widths + $xs(0,) - $widths/2;
+	}
+	
+	# note: empty piddles are silently ignored
+	
+	# Store these bin edges if the underlying dataset is static:
+	$self->{binEdges} = $edges unless ref($self->dataset) =~ /Func/;
+	
+	return $edges;
+}
+
+
+
+
+
+# working here - implement get_x_y_data, get_bin_edges
+
+
+
+
+
+# The collation code:
+sub compute_collated_min_max_for {
+	my ($self, $axis_name, $pixel_extent) = @_;
+	
+	# Get the list of properties for which we need to look for bad values:
+	my %properties = $self->generate_properties(@PDL::Drawing::Prima::rectangles_props);
+	
+	# Extract the line widths, against which we'll collate:
+	my $lineWidths = $properties{lineWidths};
+	$lineWidths = $self->widget->lineWidth unless defined $lineWidths;
+	delete $properties{lineWidths};
+	
+	# get the rest of the piddles, which are associated with plural keys
+	my @prop_piddles;
+	while(my ($k, $v) = each %properties) {
+		push @prop_piddles, $v if $k =~ /s$/;
+	}
+	
+	my ($xs, $ys) = $self->get_x_y_data;
+	
+	# Return "nothing" if the datasets are empty
+	return zeroes($pixel_extent + 1)->setvaltobad(0) if $xs->nelem == 0;
+	
+	# For the y min/max, get the y-data, the padding, and the baseline:
+	if ($axis_name eq 'y') {
+		my $to_check = $ys->append(zeroes(1) + $self->{baseline});
+		my $top_padding = $lineWidths;
+		$top_padding += $self->{topPadding} if any $to_check > $self->{baseline};
+		my $bottom_padding = $lineWidths;
+		$bottom_padding += $self->{topPadding} if any $to_check < $self->{baseline};
+		
+		return PDL::collate_min_max_wrt_many($to_check, $bottom_padding
+			, $to_check, $top_padding, $pixel_extent
+			, $xs->append(zeroes(1)), @prop_piddles);
+	}
+	# For the x min/max, get the bin edges and collate by line width:
+	else {
+		my $edges = $self->get_bin_edges;
+		
+		# Handle degenerate edge case
+		if ($edges->dim(0) == 2) {
+			return PDL::collate_min_max_wrt_many($edges(0), $lineWidths
+				, $edges(1), $lineWidths, $pixel_extent
+				, $ys, @prop_piddles);
+		}
+		
+		return PDL::collate_min_max_wrt_many($edges(0:-2), $lineWidths
+			, $edges(1:-1), $lineWidths, $pixel_extent
+			, $ys, @prop_piddles);
+	}
+}
+
+
+sub draw {
+	my ($self, $canvas, $ratio) = @_;
+	my $dataset = $self->dataset;
+	my $widget = $self->widget;
+	
+	# Assemble the various properties from the plot-type object and the dataset
+	my %properties = $self->generate_properties(@PDL::Drawing::Prima::rectangles_props);
+	
+	# Get the edges and skip out if we have an empty case
+	my $edges = $self->get_bin_edges($dataset, $widget);
+	return unless defined $edges;
+	
+	# convert everything to pixels
+	my $pixel_edges = $widget->x->reals_to_pixels($edges, $ratio);
+	my $pixel_bottom = $widget->y->reals_to_pixels($self->{baseline}, $ratio);
+	my $ys = $widget->y->reals_to_pixels($dataset->get_ys, $ratio);
+	
+	$canvas->pdl_rectangles($pixel_edges(0:-2), $pixel_bottom
+			, $pixel_edges(1:-1), $ys, %properties);
+}
+
+
+
+
 
 =back
 
@@ -219,11 +395,11 @@ use base 'PDL::Graphics::Prima::PlotType';
 
 # A function that gets the data and performs the real-to-pixel conversion:
 sub get_data_as_pixels {
-	my $self = shift;
+	my ($self, $ratio) = @_;
 	my ($xs, $ys) = $self->get_data;
 	
-	return ($self->widget->x->reals_to_pixels($xs)
-		, $self->widget->y->reals_to_pixels($ys));
+	return ($self->widget->x->reals_to_pixels($xs, $ratio)
+		, $self->widget->y->reals_to_pixels($ys, $ratio));
 }
 
 
@@ -321,8 +497,12 @@ sub compute_collated_min_max_for {
 	my $lineWidths = $properties{lineWidths};
 	$lineWidths = $self->widget->lineWidth unless defined $lineWidths;
 	delete $properties{lineWidths};
-	# get the rest of the piddles; we don't need their names:
-	my @prop_piddles = values %properties;
+	# get the rest of the piddles, all of which are associated with plural
+	# endings:
+	my @prop_piddles;
+	while(my ($k, $v) = each %properties) {
+		push @prop_piddles, $v if $k =~ /s$/;
+	}
 	
 	# Get the data:
 	my ($xs, $ys) = $self->get_data;
@@ -339,7 +519,7 @@ sub compute_collated_min_max_for {
 }
 
 sub draw {
-	my ($self, $canvas) = @_;
+	my ($self, $canvas, $ratio) = @_;
 	
 	# Assemble the various properties from the plot-type object and the dataset
 	my @prop_list = $self->{thread_like} eq 'lines'	? @PDL::Drawing::Prima::polylines_props
@@ -347,7 +527,7 @@ sub draw {
 	my %properties = $self->generate_properties(@prop_list);
 
 	# Retrieve the data from the dataset:
-	my ($xs, $ys) = $self->get_data_as_pixels;
+	my ($xs, $ys) = $self->get_data_as_pixels($ratio);
 	
 	if ($self->{thread_like} eq 'points') {
 		# Draw from the points to their half-way points:
@@ -519,6 +699,13 @@ sub compute_collated_min_max_for {
 	my ($to_check, $extra) = my ($xs, $ys) = $self->dataset->get_data;
 	($to_check, $extra) = ($ys, $xs) if $axis_name eq 'y';
 	
+	# get the rest of the piddles, which are associated with plural keys
+	my @prop_piddles;
+	while(my ($k, $v) = each %properties) {
+		push @prop_piddles, $v if $k =~ /s$/;
+	}
+	push @prop_piddles, $extra;
+	
 	# The min/max depend on whether the baseline we're using has the same
 	# name as the axis we're using, or not. If the baseline has the same
 	# name as the axis of interest, then the spikes are drawn in the
@@ -526,9 +713,6 @@ sub compute_collated_min_max_for {
 	# in the other axis, then the pixel extent is the line width.
 	my $baseline_name = $axis_name . '_baseline';
 	if (exists $self->{$baseline_name}) {
-		# get the property piddles; we don't need their names:
-		my @prop_piddles = (values %properties, $extra);
-		
 		# Collate the min and the max:
 		my ($min, $max) = PDL::collate_min_max_wrt_many($to_check, 1,
 			$to_check, 1, $pixel_extent, @prop_piddles);
@@ -549,8 +733,6 @@ sub compute_collated_min_max_for {
 		my $lineWidths = $properties{lineWidths};
 		$lineWidths = $self->widget->lineWidth unless defined $lineWidths;
 		delete $properties{lineWidths};
-		# get the rest of the piddles; we don't need their names:
-		my @prop_piddles = (values %properties, $extra);
 		
 		# Collate and return the min and the max:
 		return PDL::collate_min_max_wrt_many($to_check, $lineWidths,
@@ -560,20 +742,20 @@ sub compute_collated_min_max_for {
 
 # Here is the method for drawing spikes:
 sub draw {
-	my ($self, $canvas) = @_;
+	my ($self, $canvas, $ratio) = @_;
 	
 	# Assemble the various properties from the plot-type object and the dataset
 	my %properties = $self->generate_properties(@PDL::Drawing::Prima::lines_props);
 
 	# Retrieve the data from the dataset:
 	my $widget = $self->widget;
-	my ($xs, $ys) = $self->dataset->get_data_as_pixels($widget);
+	my ($xs, $ys) = $self->dataset->get_data_as_pixels($ratio);
 	
 	# Draw the lines, either horizontal or vertical, based on the given baseline
 	if (exists $self->{y_baseline}) {
 		my $baseline = $ys->zeroes;
 		if (defined $self->{y_baseline}) {
-			$baseline = $widget->y->reals_to_pixels($baseline + $self->{y_baseline});
+			$baseline = $widget->y->reals_to_pixels($baseline + $self->{y_baseline}, $ratio);
 		}
 		else {
 			# working here - make threadable?
@@ -585,7 +767,7 @@ sub draw {
 	else {
 		my $baseline = $xs->zeroes;
 		if (defined $self->{x_baseline}) {
-			$baseline = $widget->x->reals_to_pixels($baseline + $self->{x_baseline});
+			$baseline = $widget->x->reals_to_pixels($baseline + $self->{x_baseline}, $ratio);
 		}
 		else {
 			# working here - make threadable?
@@ -667,7 +849,12 @@ sub compute_collated_min_max_for {
 	# Get the list of properties for which we need to look for bad values:
 	my %properties
 		= $self->generate_properties(@PDL::Drawing::Prima::fill_ellipses_props);
-	my @extras = values %properties;
+	
+	# get the rest of the piddles, which are associated with plural keys
+	my @extras;
+	while(my ($k, $v) = each %properties) {
+		push @extras, $v if $k =~ /s$/;
+	}
 	
 	# Get the data and radii:
 	my ($xs, $ys) = $self->dataset->get_data;
@@ -689,13 +876,13 @@ sub compute_collated_min_max_for {
 }
 
 sub draw {
-	my ($self, $canvas) = @_;
+	my ($self, $canvas, $ratio) = @_;
 	
 	# Assemble the various properties from the plot-type object and the dataset
 	my %properties = $self->generate_properties(@PDL::Drawing::Prima::fill_ellipses_props);
 	
 	# Retrieve the data from the dataset:
-	my ($xs, $ys) = $self->dataset->get_data_as_pixels;
+	my ($xs, $ys) = $self->dataset->get_data_as_pixels($ratio);
 
 	# plot it:
 	$canvas->pdl_fill_ellipses($xs, $ys, 2*$self->{xRadius}, 2*$self->{yRadius}
@@ -852,7 +1039,12 @@ sub compute_collated_min_max_for {
 	# Get the list of properties for which we need to look for bad values:
 	my %properties
 		= $self->generate_properties(@PDL::Drawing::Prima::symbols_props);
-	my @extras = values %properties;
+	
+	# get the rest of the piddles, which are associated with plural keys
+	my @extras;
+	while(my ($k, $v) = each %properties) {
+		push @extras, $v if $k =~ /s$/;
+	}
 	
 	my $size = $self->{size};
 	my $to_check;
@@ -877,13 +1069,13 @@ sub compute_collated_min_max_for {
 }
 
 sub draw {
-	my ($self, $canvas) = @_;
+	my ($self, $canvas, $ratio) = @_;
 	
 	# Assemble the various properties from the plot-type object and the dataset
 	my %props = $self->generate_properties(@PDL::Drawing::Prima::symbols_props);
 	
 	# Retrieve the data from the dataset:
-	my ($xs, $ys) = $self->dataset->get_data_as_pixels;
+	my ($xs, $ys) = $self->dataset->get_data_as_pixels($ratio);
 	$canvas->pdl_symbols($xs, $ys, $self->{N_points}
 		, $self->{orientation}, $self->{filled}, $self->{size}
 		, $self->{skip}, %props);
@@ -1128,15 +1320,7 @@ sub ppair::Histogram {
 sub initialize {
 	my $self = shift;
 	$self->SUPER::initialize(@_);
-	
-	# Default to an upper padding of of 10 pixels:
-	$self->{topPadding} = 10 unless defined $self->{topPadding};
-	croak("topPadding must be a nonnegative integer")
-		unless $self->{topPadding} =~ /^\d+$/ and $self->{topPadding} >= 0;
-	
-	# Make sure we have a default baseline:
-	$self->{baseline} = 0 unless defined $self->{baseline};
-	$self->{baseline} += 0;
+	PDL::Graphics::Prima::PlotType::Role::Histogram::initialize($self);
 }
 
 
@@ -1150,10 +1334,25 @@ sub get_bin_edges {
 	# Compute linear bin edges if none are supplied:
 	my $xs = $self->dataset->get_xs;
 	my @dims = $xs->dims;
+	@dims > 0 or @dims = (1);
 	$dims[0]++;
-	my $widths = $xs(1,) - $xs(0,);
-	my $edges = xvals(@dims) * $widths + $xs(0,) - $widths/2;
-	# working here - croak on bad bounds?
+	# The widths are based on the left and right values of x, unless
+	# there is only one x-entry, in which case we have a degeneracy
+	# problem
+	my $edges;
+	if ($dims[0] > 2) {
+		my $widths = $xs(1,) - $xs(0,);
+		$edges = xvals(@dims) * $widths + $xs(0,) - $widths/2;
+	}
+	elsif ($dims[0] == 2) {
+		# Set the default width to half the x-value
+		my $widths = $xs / 2;
+		# If the x-value is zero, set the width to 1
+		$widths->where($widths == 0) .= 1;
+		$edges = xvals(@dims) * $widths + $xs(0,) - $widths/2;
+	}
+	
+	# note: empty piddles are silently ignored
 	
 	# Store these bin edges if the underlying dataset is static:
 	$self->{binEdges} = $edges unless ref($self->dataset) =~ /Func/;
@@ -1191,7 +1390,17 @@ sub compute_collated_min_max_for {
 	$lineWidths = $self->widget->lineWidth unless defined $lineWidths;
 	delete $properties{lineWidths};
 	
+	# get the rest of the piddles, which are associated with plural keys
+	my @prop_piddles;
+	while(my ($k, $v) = each %properties) {
+		push @prop_piddles, $v if $k =~ /s$/;
+	}
+	
 	my ($xs, $ys) = $self->dataset->get_data;
+	
+	# Return "nothing" if the datasets are empty
+	return zeroes($pixel_extent + 1)->setvaltobad(0) if $xs->nelem == 0;
+	
 	# For the y min/max, get the y-data, the padding, and the baseline:
 	if ($axis_name eq 'y') {
 		my $to_check = $ys->append(zeroes(1) + $self->{baseline});
@@ -1202,31 +1411,42 @@ sub compute_collated_min_max_for {
 		
 		return PDL::collate_min_max_wrt_many($to_check, $bottom_padding
 			, $to_check, $top_padding, $pixel_extent
-			, $xs->append(zeroes(1)), values %properties);
+			, $xs->append(zeroes(1)), @prop_piddles);
 	}
 	# For the x min/max, get the bin edges and collate by line width:
 	else {
 		my $edges = $self->get_bin_edges;
+		
+		# Handle degenerate edge case
+		if ($edges->dim(0) == 2) {
+			return PDL::collate_min_max_wrt_many($edges(0), $lineWidths
+				, $edges(1), $lineWidths, $pixel_extent
+				, $ys, @prop_piddles);
+		}
+		
 		return PDL::collate_min_max_wrt_many($edges(0:-2), $lineWidths
 			, $edges(1:-1), $lineWidths, $pixel_extent
-			, $ys, values %properties);
+			, $ys, @prop_piddles);
 	}
 }
 
 
 sub draw {
-	my ($self, $canvas) = @_;
+	my ($self, $canvas, $ratio) = @_;
 	my $dataset = $self->dataset;
 	my $widget = $self->widget;
 	
 	# Assemble the various properties from the plot-type object and the dataset
 	my %properties = $self->generate_properties(@PDL::Drawing::Prima::rectangles_props);
 	
-	# Get the edges and convert everything to pixels:
+	# Get the edges and skip out if we have an empty case
 	my $edges = $self->get_bin_edges($dataset, $widget);
-	my $pixel_edges = $widget->x->reals_to_pixels($edges);
-	my $pixel_bottom = $widget->y->reals_to_pixels($self->{baseline});
-	my $ys = $widget->y->reals_to_pixels($dataset->get_ys);
+	return unless defined $edges;
+	
+	# convert everything to pixels
+	my $pixel_edges = $widget->x->reals_to_pixels($edges, $ratio);
+	my $pixel_bottom = $widget->y->reals_to_pixels($self->{baseline}, $ratio);
+	my $ys = $widget->y->reals_to_pixels($dataset->get_ys, $ratio);
 	
 	$canvas->pdl_rectangles($pixel_edges(0:-2), $pixel_bottom
 			, $pixel_edges(1:-1), $ys, %properties);
@@ -1334,6 +1554,12 @@ sub compute_collated_min_max_for {
 	$lineWidths = $self->widget->lineWidth unless defined $lineWidths;
 	delete $properties{lineWidths};
 	
+	# get the rest of the piddles, which are associated with plural keys
+	my @prop_piddles;
+	while(my ($k, $v) = each %properties) {
+		push @prop_piddles, $v if $k =~ /s$/;
+	}
+	
 	# This gets pretty complex. For example, consider the x-min. The
 	# collation must combine the x data and their widths (the widths of the
 	# error bars as well as the caps) along with x-minus-errors and the
@@ -1349,7 +1575,7 @@ sub compute_collated_min_max_for {
 		if (exists($self->{left_bars})) {
 			my ($min, $max) = PDL::collate_min_max_wrt_many(
 				  $xs - $self->{left_bars}, $lineWidths, $xs, 0
-				, $pixel_extent, values %properties
+				, $pixel_extent, @prop_piddles
 				, $self->{x_err_width}, $lineWidths, $ys);
 			push @mins, $min;
 			push @maxes, $max;
@@ -1358,7 +1584,7 @@ sub compute_collated_min_max_for {
 		if (exists $self->{left_bars}) {
 			my ($min, $max) = PDL::collate_min_max_wrt_many(
 				  $xs, 0, $xs + $self->{right_bars}, $lineWidths
-				, $pixel_extent, values %properties
+				, $pixel_extent, @prop_piddles
 				, $self->{x_err_width}, $lineWidths, $ys);
 			push @mins, $min;
 			push @maxes, $max;
@@ -1375,7 +1601,7 @@ sub compute_collated_min_max_for {
 			if (exists $self->{upper_bars}) {
 				my ($min, $max) = PDL::collate_min_max_wrt_many(
 					  $xs, $width, $xs, $width
-					, $pixel_extent, values %properties
+					, $pixel_extent, @prop_piddles
 					, $self->{y_err_width}, $lineWidths, $ys
 					, $self->{upper_bars});
 				push @mins, $min;
@@ -1384,7 +1610,7 @@ sub compute_collated_min_max_for {
 			if (exists $self->{lower_bars}) {
 				my ($min, $max) = PDL::collate_min_max_wrt_many(
 					  $xs, $width, $xs, $width
-					, $pixel_extent, values %properties
+					, $pixel_extent, @prop_piddles
 					, $self->{y_err_width}, $lineWidths, $ys
 					, $self->{lower_bars});
 				push @mins, $min;
@@ -1397,7 +1623,7 @@ sub compute_collated_min_max_for {
 		if (exists($self->{lower_bars})) {
 			my ($min, $max) = PDL::collate_min_max_wrt_many(
 				  $ys - $self->{lower_bars}, $lineWidths, $ys, 0
-				, $pixel_extent, values %properties
+				, $pixel_extent, @prop_piddles
 				, $self->{y_err_width}, $lineWidths, $xs);
 			push @mins, $min;
 			push @maxes, $max;
@@ -1406,7 +1632,7 @@ sub compute_collated_min_max_for {
 		if (exists $self->{upper_bars}) {
 			my ($min, $max) = PDL::collate_min_max_wrt_many(
 				  $ys, 0, $ys + $self->{upper_bars}, $lineWidths
-				, $pixel_extent, values %properties
+				, $pixel_extent, @prop_piddles
 				, $self->{y_err_width}, $lineWidths, $xs);
 			push @mins, $min;
 			push @maxes, $max;
@@ -1423,7 +1649,7 @@ sub compute_collated_min_max_for {
 			if (exists $self->{left_bars}) {
 				my ($min, $max) = PDL::collate_min_max_wrt_many(
 					  $ys, $width, $ys, $width
-					, $pixel_extent, values %properties
+					, $pixel_extent, @prop_piddles
 					, $self->{x_err_width}, $lineWidths, $xs
 					, $self->{left_bars});
 				push @mins, $min;
@@ -1432,7 +1658,7 @@ sub compute_collated_min_max_for {
 			if (exists $self->{right_bars}) {
 				my ($min, $max) = PDL::collate_min_max_wrt_many(
 					  $ys, $width, $ys, $width
-					, $pixel_extent, values %properties
+					, $pixel_extent, @prop_piddles
 					, $self->{x_err_width}, $lineWidths, $xs
 					, $self->{right_bars});
 				push @mins, $min;
@@ -1457,7 +1683,7 @@ sub compute_collated_min_max_for {
 }
 
 sub draw {
-	my ($self, $canvas) = @_;
+	my ($self, $canvas, $ratio) = @_;
 	my ($xs, $ys) = $self->dataset->get_data;
 	my $widget = $self->widget;
 	
@@ -1469,9 +1695,9 @@ sub draw {
 		my $left_xs = $xs - $self->{left_bars};
 		
 		# Convert from points to pixels:
-		$left_xs = $widget->x->reals_to_pixels($left_xs);
-		my $local_xs = $widget->x->reals_to_pixels($xs);
-		my $local_ys = $widget->y->reals_to_pixels($ys);
+		$left_xs = $widget->x->reals_to_pixels($left_xs, $ratio);
+		my $local_xs = $widget->x->reals_to_pixels($xs, $ratio);
+		my $local_ys = $widget->y->reals_to_pixels($ys, $ratio);
 
 		# Draw the line from the point to the edge:
 		$canvas->pdl_lines($left_xs, $local_ys, $local_xs, $local_ys, %properties);
@@ -1486,9 +1712,9 @@ sub draw {
 		my $right_xs = $xs + $self->{right_bars};
 		
 		# Convert from points to pixels:
-		$right_xs = $widget->x->reals_to_pixels($right_xs);
-		my $local_xs = $widget->x->reals_to_pixels($xs);
-		my $local_ys = $widget->y->reals_to_pixels($ys); #--
+		$right_xs = $widget->x->reals_to_pixels($right_xs, $ratio);
+		my $local_xs = $widget->x->reals_to_pixels($xs, $ratio);
+		my $local_ys = $widget->y->reals_to_pixels($ys, $ratio);
 
 		# Draw the line from the point to the edge:
 		$canvas->pdl_lines($local_xs, $local_ys, $right_xs, $local_ys, %properties);
@@ -1503,9 +1729,9 @@ sub draw {
 		my $upper_ys = $ys + $self->{upper_bars};
 		
 		# Convert from points to pixels:
-		$upper_ys = $widget->y->reals_to_pixels($upper_ys); #--
-		my $local_xs = $widget->x->reals_to_pixels($xs);
-		my $local_ys = $widget->y->reals_to_pixels($ys); #--
+		$upper_ys = $widget->y->reals_to_pixels($upper_ys, $ratio);
+		my $local_xs = $widget->x->reals_to_pixels($xs, $ratio);
+		my $local_ys = $widget->y->reals_to_pixels($ys, $ratio);
 
 		# Draw the line from the point to the edge
 		$canvas->pdl_lines($local_xs, $local_ys, $local_xs, $upper_ys, %properties);
@@ -1520,9 +1746,9 @@ sub draw {
 		my $lower_ys = $ys - $self->{lower_bars};
 		
 		# Convert from points to pixels:
-		$lower_ys = $widget->y->reals_to_pixels($lower_ys); #--
-		my $local_xs = $widget->x->reals_to_pixels($xs);
-		my $local_ys = $widget->y->reals_to_pixels($ys); #--
+		$lower_ys = $widget->y->reals_to_pixels($lower_ys, $ratio);
+		my $local_xs = $widget->x->reals_to_pixels($xs, $ratio);
+		my $local_ys = $widget->y->reals_to_pixels($ys, $ratio);
 
 		# Draw the line from the point to the edge:
 		$canvas->pdl_lines($local_xs, $local_ys, $local_xs, $lower_ys, %properties);
@@ -1568,6 +1794,12 @@ sub compute_collated_min_max_for {
 	my %properties
 		= $self->generate_properties(@PDL::Drawing::Prima::bars_props);
 
+	# get the rest of the piddles, which are associated with plural keys
+	my @prop_piddles;
+	while(my ($k, $v) = each %properties) {
+		push @prop_piddles, $v if $k =~ /s$/;
+	}
+	
 	my $to_check = $self->dataset->edges($axis_name);
 	my ($left_check, $right_check, $left_extra, $right_extra);
 	if ($axis_name eq 'x') {
@@ -1586,19 +1818,19 @@ sub compute_collated_min_max_for {
 	# Fudging a little bith with $extra, this could probably be improved
 	# working here
 	return PDL::collate_min_max_wrt_many($left_check, 0, $right_check, 0
-		, $pixel_extent, values %properties, $left_extra, $right_extra);
+		, $pixel_extent, @prop_piddles, $left_extra, $right_extra);
 }
 
 # Drawing is fairly straight-forward. The consuming class must provide a
 # get_colored_data function.
 sub draw {
-	my ($self, $canvas) = @_;
+	my ($self, $canvas, $ratio) = @_;
 	my $dataset = $self->dataset;
 	my $widget = $self->widget;
 	
 	# Convert the x and y edges to coordinate edges:
-	my $xs = $widget->x->reals_to_pixels($dataset->edges('x'));
-	my $ys = $widget->y->reals_to_pixels($dataset->edges('y'));
+	my $xs = $widget->x->reals_to_pixels($dataset->edges('x'), $ratio);
+	my $ys = $widget->y->reals_to_pixels($dataset->edges('y'), $ratio);
 	
 	# Gather the properties that I will need to use in the plotting.
 	my %properties = $self->generate_properties(@PDL::Drawing::Prima::bars_props);
@@ -1698,7 +1930,7 @@ sub initialize {
 # Collation and drawing are handled by the raster role, but require the
 # existence of the get_colored_data function:
 *compute_collated_min_max_for
-= \&PDL::Graphics::Prima::PlotType::Role::Raster::compute_collated_min_max_for;
+ = \&PDL::Graphics::Prima::PlotType::Role::Raster::compute_collated_min_max_for;
 *draw = \&PDL::Graphics::Prima::PlotType::Role::Raster::draw;
 
 sub get_colored_data {
@@ -1744,13 +1976,538 @@ sub pimage::Basic {
 # Collation and drawing are handled by the raster role, but require the
 # existence of the get_colored_data function:
 *compute_collated_min_max_for
-= \&PDL::Graphics::Prima::PlotType::Role::Raster::compute_collated_min_max_for;
+ = \&PDL::Graphics::Prima::PlotType::Role::Raster::compute_collated_min_max_for;
 *draw = \&PDL::Graphics::Prima::PlotType::Role::Raster::draw;
 
 sub get_colored_data {
 	return $_[0]->dataset->get_prima_color_data;
 }
 
+
+###############################################################################
+#                         Annotation-based Plot Types                         #
+###############################################################################
+
+=head2 Annotation Plot Types
+
+Annotation plot types have a number of distinct features compared with other
+plot types. They do not have any standard data or function arguments. They
+tend to provide features that are decorative or annotative. Many of them
+support relative positioning as well. However, none of these are requirements
+for annotation plot types and they are the general catch-all plot type class
+for plot types that do not have a sensibly related dataset.
+
+Since Annotation plot types do not presume any form of the data's structure,
+if you are considering creating a new plot type and cannot figure out which
+basic plot type to use, the Annotation base class may be the right fit.
+
+As a base class, C<PDL::Graphics::Prima::PlotType::Annotation> provides the
+following methods that may be useful for your derived classes:
+
+=over
+
+=cut
+
+package PDL::Graphics::Prima::PlotType::Annotation;
+our @ISA = qw(PDL::Graphics::Prima::PlotType);
+use Carp;
+
+=item parse_position
+
+This method standardizes and typo-checks position specifications. The
+specification can be either a string or an anonymous hash; the return value
+is an anonymous hash. If you pass in a bad spec, the method croaks. You call
+it like any other method:
+
+ $hash = $note_obj->parse_position($spec);
+
+A position
+specification is a powerful and flexible means for specifying a location on
+a plot widget as a combination of data values, pixel offsets, multiples of
+the current width of the letter C<M>, and a percentage of the current plot
+portion of the widget. I think best in terms of examples, so here are a
+couple that hopefully illustrate how this works.
+
+If passed as a y-specification, i.e. top or bottom specification, this will
+pick a location that is one M-width below the upper axis. If passed as an
+x-specification, this will pick a location that is one M-width to the left
+of the right axis.
+
+ # input
+ $spec_string = '100% - 1em';
+ # output
+ $spec_hash = {
+     pct => 100, em => 1
+ };
+
+Here's another one. As a y-specification, this will give a location that is
+five pixels below the y-value of 12. As an x-specification, this will give a
+location that is fixe pixels to the left of the x-value of 12.
+
+ # input 
+ $spec_string = '12 - 5px';
+ # output
+ $spec_hash = {
+     raw => 12, px => -5,
+ };
+
+Allowed postfixes in the spec string are nothing for raw data values, C<%>
+for plot window percentages, C<em> for M-widths, and C<px> for pixel widths.
+The corresponding names in the output hash are C<raw>, C<pct>, C<em>, and
+C<px>, respectively. You can use normal floating-point number notation for
+the values. When you use a specification string, the values associated with
+each key in the returned hash will be Perl scalars.
+
+As I already mentioned, this method accepts either a string or a hash and
+most of what I have documented has focused on the string parsing. If
+passed a hash, it simply verifies that the keys in the hash are only the
+above four values. It does not verify the values asssociated with the hash.
+This lack of data verification is why I discribe it above as a method to
+"typo-check" a position specification. If you create a specification hash
+that includes C<pc> instead of C<px>, this will catch it for you.
+
+Why not verify? Your method that ultimately uses the results of the parsed
+position may be flexible enough to use complex data types, such as piddles
+or other objects, and I do not want to overly restrict the utility of this
+method. This can be used to great effect with L</pnote::Region>, for example,
+in which you can specify many region highlights with a single set of piddles.
+The drawing commands automatically thread over those piddle values. For this
+reason, C<parse_position> assumes that if you specified your position by
+hand with a hash rather than with a specification string, you know what
+you are doing.
+
+To translate the resulting hash into a pixel position on the plot widget,
+use C<compute_position>.
+
+=cut
+
+my %allowed_entries = map {$_ => 1} qw(em pct px raw);
+my $float_point_regex = qr/[-+]?([0-9]*\.?[0-9]+|[0-9]+\.[0-9]*)([eE][-+]?[0-9]+)?/;
+sub parse_position {
+	my ($self, $spec) = @_;
+	
+	# If they passed a pre-parsed hashref, use that
+	if (ref($spec) eq 'HASH') {
+		# Make sure the entries are valid
+		for my $key (keys %$spec) {
+			croak("Region edge-hash has invalid key $key")
+				unless $allowed_entries{$key};
+		}
+	}
+	else {
+		# Strip spaces and convert to all lower-case
+		$spec =~ s/\s+//g;
+		$spec = lc $spec;
+		
+		my %hash;
+		
+		# Pull out the different parts, one at a time
+		if ($spec =~ s/($float_point_regex)em//) {
+			$hash{em} = $1;
+		}
+		if ($spec =~ s/($float_point_regex)\%//) {
+			$hash{pct} = $1 / 100;
+		}
+		if ($spec =~ s/($float_point_regex)px//) {
+			$hash{px} = $1;
+		}
+		if ($spec =~ /^($float_point_regex)$/) {
+			$hash{raw} = $1;
+		}
+		elsif (length($spec) > 0) {
+			croak("Unknown fragment in region edge spec: $spec");
+		}
+		$spec = \%hash;
+	}
+	
+	return $spec;
+}
+
+=item em_width
+
+This method takes the current axis and obtains the width of the letter C<M>
+in pixels. You call it like so:
+
+ $em_width = $note_obj->em_width($y_axis);
+
+Note: you can obtain the x- or y-axis object calling the C<x> and C<y>
+methods, respectively, of the plot widget.
+
+=cut
+
+sub em_width {
+	my ($self, $axis) = @_;
+	my ($em_width) = $axis->em_dims;
+	return $em_width;
+}
+
+=item compute_position
+
+This method expects a position hash, an axis, and a drawing ratio (which is
+always supplied as the last argument to C<draw>; if you're not sure what to
+do, use a value of 1) and computes a pixel offset for the position. The
+position hash must have a percentage or a raw data value or the method
+croaks. The returned value is a pixel position that corresponds to the
+desired location on the plot widget and which can be fed directly into
+Prima's drawing operations. If any of the values in the position hash are
+piddles, the result will be a piddle of positions that can be sent to the
+drawing operations provided by L<PDL::Drawing::Prima>.
+
+This method expects a position hash of the form built (or verified) by
+C<parse_position>.
+
+=cut
+
+sub compute_position {
+	my ($self, $position_hash, $axis, $ratio) = @_;
+	
+	# Start with the raw data, or undef
+	my $rel_position;
+	$rel_position = $axis->reals_to_relatives($position_hash->{raw})
+		if defined $position_hash->{raw};
+	# Next add the percent:
+	$rel_position += $position_hash->{pct}
+		if defined $position_hash->{pct};
+	# If we don't have a relative position, croak
+	croak("Position spec must have a raw or percentage spec")
+		if not defined $rel_position;
+	
+	# Convert the relative position to pixels
+	my $position = $axis->relatives_to_pixels($rel_position, $ratio);
+	
+	# Add any pixel offsets
+	$position += $position_hash->{px} if defined $position_hash->{px};
+	$position += $self->em_width($axis) * $position_hash->{em}
+		if defined $position_hash->{em};
+
+	return $position;
+}
+
+=back
+
+There are a number of annotation plot-types:
+
+=cut
+
+
+#####################################################
+# PDL::Graphics::Prima::PlotType::Annotation::Region #
+#####################################################
+
+=item pnote::Region
+
+=for ref
+
+ pnote::Region( [left   => position-spec],
+                [right  => position-spec],
+                [bottom => position-spec],
+                [top    => position-spec],
+                options )
+
+Draws a shaded region, or if any of your position specs
+include piddles it draws a set of shaded regions in one PDL-threaded drawing
+operation.
+
+This is useful if you want to highlight certain portions of your
+figure with a rectangular highlight (or is it a backlight?). Each Region
+annotation has a position specification for the left, bottom, right, and top
+edges. The defaults for the left and bottom are the specification string 
+C<'0%'> and the defaults for the right and top are the specification string
+C<'100%'>.
+
+For more on position specifications, see the discussion of C<parse_position>
+under L</Annotation Plot Types>.
+
+=cut
+
+package PDL::Graphics::Prima::PlotType::Annotation::Region;
+our @ISA = qw(PDL::Graphics::Prima::PlotType::Annotation);
+
+use Carp;
+use PDL;
+
+# short-name constructor:
+sub pnote::Region {
+	return PDL::Graphics::Prima::PlotType::Annotation::Region->new(@_);
+}
+
+sub initialize {
+	my $self = shift;
+
+	# Call the superclass initialization:
+	$self->SUPER::initialize(@_);
+	
+	# Set sane defaults for the different specs
+	%$self = (
+		left => '0%', bottom => '0%', right => '100%', top => '100%',
+		%$self
+	);
+	
+	# Replace the specs with parsed versions
+	for my $edge_name (qw(left bottom right top)) {
+		$self->{$edge_name} = $self->parse_position($self->{$edge_name});
+	}
+}
+
+# Collation needs to eventually account for raw values, but for now it simply
+# doesn't register; working here
+sub compute_collated_min_max_for {
+	my ($self, $axis_name, $pixel_extent) = @_;
+	return zeroes($pixel_extent+1)->setvaltobad(0),
+		zeroes($pixel_extent+1)->setvaltobad(0);
+}
+
+sub draw {
+	my ($self, $canvas, $ratio) = @_;
+	# Assemble the various properties from the plot-type object and the dataset
+	my @prop_list = @PDL::Drawing::Prima::bars_props;
+	my %properties = $self->generate_properties(@prop_list);
+
+	# Get the left, bottom, right, and top pixel positions
+	my @pixel_positions = (
+		$self->compute_position($self->{left}, $self->widget->x, $ratio),
+		$self->compute_position($self->{bottom}, $self->widget->y, $ratio),
+		$self->compute_position($self->{right}, $self->widget->x, $ratio),
+		$self->compute_position($self->{top}, $self->widget->y, $ratio),
+	);
+	
+	$canvas->pdl_bars(@pixel_positions, %properties);
+}
+
+###################################################
+# PDL::Graphics::Prima::PlotType::Annotation::Box #
+###################################################
+
+=item pnote::Box
+
+=for ref
+
+ pnote::Box( [left   => position-spec],
+             [right  => position-spec],
+             [bottom => position-spec],
+             [top    => position-spec],
+             options )
+
+Draws an outlied box, or if any of your position specs
+include piddles it draws a set of outlined boxes in one PDL-threaded drawing
+operation.
+
+This is the outline equivalent of pnote::Region; see those docs for details.
+
+For more on position specifications, see the discussion of C<parse_position>
+under L</Annotation Plot Types>.
+
+=cut
+
+package PDL::Graphics::Prima::PlotType::Annotation::Box;
+our @ISA = qw(PDL::Graphics::Prima::PlotType::Annotation::Region);
+
+use Carp;
+use PDL;
+
+# short-name constructor:
+sub pnote::Box {
+	return PDL::Graphics::Prima::PlotType::Annotation::Box->new(@_);
+}
+
+# Collation needs to eventually account for raw values, but for now it simply
+# doesn't register; working here
+sub compute_collated_min_max_for {
+	my ($self, $axis_name, $pixel_extent) = @_;
+	return zeroes($pixel_extent+1)->setvaltobad(0),
+		zeroes($pixel_extent+1)->setvaltobad(0);
+}
+
+sub draw {
+	my ($self, $canvas, $ratio) = @_;
+	# Assemble the various properties from the plot-type object and the dataset
+	my @prop_list = @PDL::Drawing::Prima::rectangles_props;
+	my %properties = $self->generate_properties(@prop_list);
+
+	# Get the left, bottom, right, and top pixel positions
+	my @pixel_positions = (
+		$self->compute_position($self->{left}, $self->widget->x, $ratio),
+		$self->compute_position($self->{bottom}, $self->widget->y, $ratio),
+		$self->compute_position($self->{right}, $self->widget->x, $ratio),
+		$self->compute_position($self->{top}, $self->widget->y, $ratio),
+	);
+	
+	$canvas->pdl_rectangles(@pixel_positions, %properties);
+}
+
+#####################################################
+# PDL::Graphics::Prima::PlotType::Annotation::Line #
+#####################################################
+
+=item pnote::Line
+
+=for ref
+
+ pnote::Line( [x1 => position-spec],
+              [y1 => position-spec],
+              [x2 => position-spec],
+              [y2 => position-spec],
+              options )
+
+Draws a line from (x1, y1) to (x2, y2). If any of the position specs involve
+piddles, it will draw a set of lines in one PDL-threaded drawing operation.
+
+The default value for x1 and y1 is C<'0%'> and the default value for x2 and y2
+is C<'100%'>.
+
+For more on position specifications, see the discussion of C<parse_position>
+under L</Annotation Plot Types>.
+
+=cut
+
+package PDL::Graphics::Prima::PlotType::Annotation::Line;
+our @ISA = qw(PDL::Graphics::Prima::PlotType::Annotation);
+
+use Carp;
+use PDL;
+
+# short-name constructor:
+sub pnote::Line {
+	return PDL::Graphics::Prima::PlotType::Annotation::Line->new(@_);
+}
+
+sub initialize {
+	my $self = shift;
+
+	# Call the superclass initialization:
+	$self->SUPER::initialize(@_);
+	
+	# Set sane defaults for the different specs
+	%$self = (
+		x1 => '0%', y1 => '0%', x2 => '100%', y2 => '100%',
+		%$self
+	);
+	
+	# Replace the specs with parsed versions
+	for my $coord (qw(x1 y1 x2 y2)) {
+		$self->{$coord} = $self->parse_position($self->{$coord});
+	}
+}
+
+# Collation needs to eventually account for raw values, but for now it simply
+# doesn't register; working here
+sub compute_collated_min_max_for {
+	my ($self, $axis_name, $pixel_extent) = @_;
+	return zeroes($pixel_extent+1)->setvaltobad(0),
+		zeroes($pixel_extent+1)->setvaltobad(0);
+}
+
+sub draw {
+	my ($self, $canvas, $ratio) = @_;
+	# Assemble the various properties from the plot-type object and the dataset
+	my @prop_list = @PDL::Drawing::Prima::lines_props;
+	my %properties = $self->generate_properties(@prop_list);
+
+	# Get the left, bottom, right, and top pixel positions
+	my @pixel_positions = (
+		$self->compute_position($self->{x1}, $self->widget->x, $ratio),
+		$self->compute_position($self->{y1}, $self->widget->y, $ratio),
+		$self->compute_position($self->{x2}, $self->widget->x, $ratio),
+		$self->compute_position($self->{y2}, $self->widget->y, $ratio),
+	);
+	
+	$canvas->pdl_lines(@pixel_positions, %properties);
+}
+
+####################################################
+# PDL::Graphics::Prima::PlotType::Annotation::Text #
+####################################################
+
+=item pnote::Text
+
+=for ref
+
+ pnote::Text( text-string,
+              [x        => position-spec],
+              [y        => position-spec],
+              [clipRect => clip-spec],
+              options )
+
+Adds a text annotation to your plot. The x- and y-position specifications
+default to the string C<'50%'>, i.e. right in the middle of the plot. This
+may not be terribly useful, but hey, it's a default, right? The default
+C<clipRect> specification is the string C<'normal'>, which means that the
+drawing will be clipped like any other plot type to the "plot window", the
+region within the axes. You can also specify the string C<'canvas'>, which
+expands the clip region to the entire canvas, or pass a four-element array
+suitable for a call to the Prima C<clipRect> method. This added flexibility
+lets you to add notations anywhere on the figure, not just in the plotting
+region.
+
+For more on position specifications, see the discussion of C<parse_position>
+under L</Annotation Plot Types>.
+
+=cut
+
+package PDL::Graphics::Prima::PlotType::Annotation::Text;
+our @ISA = qw(PDL::Graphics::Prima::PlotType::Annotation);
+
+use Carp;
+use PDL;
+
+sub pnote::Text {
+	croak('pnote::Text must be given a string of text and optional x/y key/value pairs')
+		if @_ % 2 == 0;
+	return PDL::Graphics::Prima::PlotType::Annotation::Text->new(text => @_);
+}
+
+sub initialize {
+	my $self = shift;
+	
+	# Call the superclass initialization:
+	$self->SUPER::initialize(@_);
+	
+	# Set sane defaults for the different specs
+	%$self = (
+		x => '50%', y => '50%', clipRect => 'normal',
+		%$self
+	);
+	
+	# Replace the specs with parsed versions
+	for my $edge_name (qw(x y)) {
+		$self->{$edge_name} = $self->parse_position($self->{$edge_name});
+	}
+}
+
+# Collation needs to eventually account for raw values, but for now it simply
+# doesn't register; working here
+sub compute_collated_min_max_for {
+	my ($self, $axis_name, $pixel_extent) = @_;
+	return zeroes($pixel_extent+1)->setvaltobad(0),
+		zeroes($pixel_extent+1)->setvaltobad(0);
+}
+
+sub draw {
+	my ($self, $canvas, $ratio) = @_;
+	
+	# Back up the clip rectangle
+	my @clip_rect = $canvas->clipRect;
+	
+	# Parse the clip rectangle
+	my $clipRect = $self->{clipRect};
+	if (ref($clipRect) and ref($clipRect) eq 'ARRAY' and @$clipRect == 4) {
+		$canvas->clipRect(@$clipRect);
+	}
+	elsif (lc $clipRect eq 'canvas') {
+		$canvas->clipRect(0, 0, $canvas->size);
+	}
+	elsif (lc $clipRect ne 'normal') {
+		croak('Text Annotation clipRect must be "normal", "canvas", or a four-element array');
+	}
+	
+	my $x = $self->compute_position($self->{x}, $self->widget->x, $ratio);
+	my $y = $self->compute_position($self->{y}, $self->widget->y, $ratio);
+	
+	$canvas->text_out($self->{text}, $x, $y);
+	
+	# Restore the clip rectangle
+	$canvas->clipRect(@clip_rect);
+}
 
 ###############################################################################
 #                         Creating your own Plot Type                         #
@@ -1776,17 +2533,17 @@ I am going to use the ficticious FooBars plotType, which I suppose would plot
 some fancy error bars.) Such a derived class would probably start out with these
 lines of code:
 
- package PDL::Graphics::Prima::PlotType::FooBars;
- use base 'PDL::Graphics::Prima::PlotType';
+ package PDL::Graphics::Prima::PlotType::Pair::FooBars;
+ use base 'PDL::Graphics::Prima::PlotType::Pair';
 
 You must then write a custom C<draw> function, and you can optionally overload
 the following functions: C<xmin>, C<xmax>, C<ymin>, C<ymax>, C<initialize>.
 
-You should also install a constructor under C<pt::FooBars> that looks like
+You should also install a constructor under C<ppair::FooBars> that looks like
 this:
 
- sub pt::FooBars {
-     PDL::Graphics::Prima::PlotType::FooBars->new(@_);
+ sub ppair::FooBars {
+     PDL::Graphics::Prima::PlotType::Pair::FooBars->new(@_);
  }
 
 That uses the inherited C<PDL::Graphics::Prima::PlotType::new> function, which
@@ -1794,7 +2551,7 @@ will eventually call your class's C<initialize> function. If your initializer
 expects custom arguments, you should overload the C<initialize> function like
 so:
 
- # still in the PDL::Graphics::Prima::PlotType::FooBars package
+ # still in the PDL::Graphics::Prima::PlotType::Pair::FooBars package
  sub initialize {
      my $self = shift;
      
@@ -1804,7 +2561,7 @@ so:
      
      # Here's some custom args processing. If the user did
      # not specify a curviness, default to 4:
-     $self->{curviness} //= 4;
+     $self->{curviness} ||= 4;
      
      # Could also check that the supplied values make sense:
      croak('Curviness must be a positive integer')
@@ -1812,7 +2569,7 @@ so:
            and $self->{curviness} > 0;
  }
 
-You could shove all of that construction functionality into C<pt::FooBars>, but
+You could shove all of that construction functionality into C<ppair::FooBars>, but
 then other classes would not be able to derive functionality from your 
 undoubtedly elegant class without resorting to rather inelegant code.
 
@@ -1889,8 +2646,12 @@ sub compute_collated_min_max_for {
 	my $lineWidths = $properties{lineWidths};
 	$lineWidths = $self->widget->lineWidth unless defined $lineWidths;
 	delete $properties{lineWidths};
-	# get the rest of the piddles; we don't need their names:
-	my @prop_piddles = values %properties;
+	
+	# get the rest of the piddles, which are associated with plural keys
+	my @prop_piddles;
+	while(my ($k, $v) = each %properties) {
+		push @prop_piddles, $v if $k =~ /s$/;
+	}
 	
 	# Get the data:
 	my ($xs, $ys) = $self->dataset->get_data;
@@ -1983,13 +2744,15 @@ sub get_data {
 
 Needs explanation and examples. This function will be called whenever the
 plot widget needs to redraw your plotType (window resizes, zooms, etc). It is
-a simple method call, and is called with the plotType object as the first and
-only argument.
+a simple method call, and is called with the plotType object as the first
+argument, the canvas upon which to draw as the second argument (typically the
+widget, but sometimes not), and the canvas ratio if the canvas's size is not
+the same as the widget's size.
 
 Now, something that I I<always> forget to do is to convert the data values to
 pixel values. You do that with the widget's x- and y-axis objects with code like
 
- my $x_to_plot = $self->widget->x->reals_to_pixels($xs)
+ my $x_to_plot = $self->widget->x->reals_to_pixels($xs, $ratio)
 
 If it seems like your new plot type is not plotting anything, be sure that you
 have properly converted the points you are trying to plot.
@@ -2019,13 +2782,12 @@ our @ISA = qw(PDL::Graphics::Prima::PlotType);
 
 =head1 CallBack
 
-This is a cool class, but it's not working at the moment. :-(
-
-This class lets you supply your own callbacks for auto-scaling min and max
-calculations and for the drawing routines. This may seem overly high-level, but
+This class lets you supply your own callback for drawing routines. In time,
+it may also allow you to supply your own callback for autoscaling, but that's
+not supported at the moment. This may seem overly high-level, but
 it's mostly here so that you can implement custom drawing routines, implement
 user-level tweaks to existing classes, and toy around with new plot types
-without having to write a full-blown class.
+without having to write a full-blown plot class.
 
 =head2 New Drawing Techniques
 
@@ -2035,16 +2797,16 @@ routines, you can specify a base class and a drawing callback like so:
  my $smiley_plot_type = pt::CallBack(
  	base_class => 'PDL::Graphics::Prima::PlotType::Pair::Blobs',
  	draw => sub {
- 		my ($self, $canvas) = @_;
+ 		my ($self, $canvas, $ratio) = @_;
  		
  		# Retrieve the data from the dataset:
- 		my ($xs, $ys) = $self->dataset->get_data_as_pixels($widget);
+ 		my ($xs, $ys) = $self->dataset->get_data_as_pixels($ratio);
  		
  		# Draw the smileys:
- 		$canvas->pdl_ellipses($xs, $ys, 10, 10);	# face
+ 		$canvas->pdl_ellipses($xs, $ys, 20, 20);	# face
  		$canvas->pdl_fill_ellipses($xs - 5, $ys + 4, 2, 2);	# left eye
  		$canvas->pdl_fill_ellipses($xs + 5, $ys + 4, 2, 2); # right eye
- 		$canvas->pdl_fill_chords($xs, $ys + 3, 10, 10, 200, 340); # smiling mouth
+ 		$canvas->pdl_arcs($xs, $ys, 10, 10, 200, 340); # smiling mouth
  	},
  	radius => 10,	# be sure to coordinate with pdl_ellipses, above
  );
@@ -2087,7 +2849,7 @@ sub initialize {
 
 # Dynamic drawing based upon values of the draw key and/or the base class:
 sub draw {
-	my ($self, $canvas) = @_;
+	my ($self, $canvas, $ratio) = @_;
 	
 	if (not exists $self->{draw}) {
 		# Didn't supply a draw function, so call the base class's draw function:
@@ -2098,7 +2860,7 @@ sub draw {
 		# Masquerade as the base class:
 		my $class = ref($self);
 		bless $self, $self->{base_class};
-		$self->draw($canvas);
+		$self->draw($canvas, $ratio);
 		bless $self, $class;
 		return;
 	}
@@ -2106,11 +2868,21 @@ sub draw {
 	if (ref($self->{draw}) and ref($self->{draw}) eq 'CODE') {
 		# They supplied a code reference, so run it:
 		my $func = $self->{draw};
-		&$func($self);
+		&$func($self, $canvas, $ratio);
 		return;
 	}
 	
 	croak('You must supply a code reference for your drawing code.');
+}
+
+sub compute_collated_min_max_for {
+	my ($self, @args) = @_;
+	# Masquerade as the base class:
+	my $class = ref($self);
+	bless $self, $self->{base_class};
+	my @to_return = $self->compute_collated_min_max_for(@args);
+	bless $self, $class;
+	return @to_return;
 }
 
 1;

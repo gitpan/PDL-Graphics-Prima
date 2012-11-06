@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package PDL::Graphics::Prima;
-our $VERSION = 0.09;
+our $VERSION = 0.10;
 
 package Prima::Plot;
 use PDL::Lite;
@@ -253,9 +253,13 @@ sub compute_min_max_for {
 			= $self->pair_down_collation('y', $trimmed_minima, $trimmed_maxima);
 		
 		# Update the axis min/max and redo the pair-down:
-		$self->{'y'}->_min($min);
-		$self->{'y'}->_max($max);
-		$self->{'y'}->recalculate_edge_requirements($self);
+		(undef, my $min_auto) = $self->y->min;
+		(undef, my $max_auto) = $self->y->max;
+		$self->y->_min($min);
+		$self->y->_max($max);
+		$self->y->recalculate_edge_requirements($self);
+		$self->y->_min(lm::Auto) if $min_auto;
+		$self->y->_max(lm::Auto) if $max_auto;
 	}
 	
 	# Perform the collation:
@@ -340,7 +344,15 @@ sub pair_down_collation {
 		if $virtual_pixel_extent <= 0;
 	# min_data and max_data are the actual min and max values of the data
 	# that are supposed to fit within the virtual pixel extent.
-	my ($min_data, $max_data) = ($trimmed_minima->at(0,2), $trimmed_maxima->at(0,2));
+	my ($min_data, $max_data)
+		= ($trimmed_minima(:,(2))->min, $trimmed_maxima(:,(2))->max);
+	
+	# It is possible that all the x-data or all the y-data are identical.
+	# Check if the current min/max values are identical and return the
+	# scaling's response in such a situation:
+	return $self->{$axis_name}->scaling->min_max_for_degenerate($min_data)
+		if $min_data == $max_data;
+	
 	# min and max are the final minimal and maximal values that we use for
 	# the axis so that all the data can be drawn within the plot.
 	my $min = $self->{$axis_name}->scaling->inv_transform($min_data, $max_data
@@ -349,14 +361,6 @@ sub pair_down_collation {
 		, 1 + $max_pix/$virtual_pixel_extent);
 	# working here - come up with something better than just croaking.
 	die "Internal error: min ($min) is greater than max ($max)" if $min > $max;
-	
-	# It is possible that all the x-data or all the y-data are identical. In
-	# that case, this scheme would normally be degenerate and return nan,
-	# which makes things croak. To solve this problem, we check if the
-	# current min/max values are identical and return the scaling's response
-	# in such a situation:
-	return $self->{$axis_name}->scaling->min_max_for_degenerate($min)
-		if $min == $max;
 	
 	# We will iterate until we stop removing rows, at which point the lowest
 	# level of the pyramid is what we want.
@@ -368,12 +372,12 @@ sub pair_down_collation {
 		# updated min/max calculated values:
 		$trimmed_minima(:,2)
 			.= $self->{$axis_name}->pixels_to_reals(
-				$self->{$axis_name}->reals_to_pixels($trimmed_minima(:,0), $min, $max)
-					- $trimmed_minima(:,1), $min, $max);
+				$self->{$axis_name}->reals_to_pixels($trimmed_minima(:,0), 1, $min, $max)
+					- $trimmed_minima(:,1), 1, $min, $max);
 		$trimmed_maxima(:,2)
 			.= $self->{$axis_name}->pixels_to_reals(
-				$self->{$axis_name}->reals_to_pixels($trimmed_maxima(:,0), $min, $max)
-					+ $trimmed_maxima(:,1), $min, $max);
+				$self->{$axis_name}->reals_to_pixels($trimmed_maxima(:,0), 1, $min, $max)
+					+ $trimmed_maxima(:,1), 1, $min, $max);
 		
 		# Trim again:
 		$min_mask = $trimmed_minima->trim_collated_min;
@@ -563,10 +567,16 @@ sub on_paint {
 	my ($clip_left, $clip_bottom, $right_edge, $top_edge)
 		= $self->get_edge_requirements;
 	
+	my $ratio = $canvas->height / $self->height;
+	
 	# The right and top edge values should be subtracted from the width and
 	# height, respectively:
-	my $clip_right = $canvas->width - $right_edge;
-	my $clip_top = $canvas->height - $top_edge;
+	my $clip_right = $canvas->width - $ratio * $right_edge;
+	my $clip_top = $canvas->height - $ratio * $top_edge;
+	
+	# Correct the left and bottom clipping for the canvas ratio
+	$clip_left *= $ratio;
+	$clip_bottom *= $ratio;
 	
 	# Clip the widget before we begin drawing
 	$canvas->clipRect($clip_left, $clip_bottom, $clip_right, $clip_top);
@@ -574,22 +584,22 @@ sub on_paint {
 	# Draw the data, sorted by key name:
 	foreach my $key (sort keys %{$self->{dataSets}}) {
 		next if $key eq 'widget';
-		$self->{dataSets}->{$key}->draw($canvas);
+		$self->{dataSets}->{$key}->draw($canvas, $ratio);
 	}
 
 	# Draw the zoom-rectangle, if there is one
 	if (exists $self->{mouse_down_rel}->{mb::Right}) {
 		my ($x, $y) = $self->pointerPos;
 		my ($x_start_rel, $y_start_rel) = @{$self->{mouse_down_rel}->{mb::Right}};
-		my $x_start_pixel = $self->x->relatives_to_pixels($x_start_rel);
-		my $y_start_pixel = $self->y->relatives_to_pixels($y_start_rel);
+		my $x_start_pixel = $self->x->relatives_to_pixels($x_start_rel, $ratio);
+		my $y_start_pixel = $self->y->relatives_to_pixels($y_start_rel, $ratio);
 		$canvas->rectangle($x_start_pixel, $y_start_pixel, $x, $y);
 	}
 	
 	# Draw the axes
 	$canvas->clipRect(0, 0, $self->size);
-	$self->x->draw($canvas, $clip_left, $clip_bottom, $clip_right, $clip_top);
-	$self->y->draw($canvas, $clip_left, $clip_bottom, $clip_right, $clip_top);
+	$self->x->draw($canvas, $clip_left, $clip_bottom, $clip_right, $clip_top, $ratio);
+	$self->y->draw($canvas, $clip_left, $clip_bottom, $clip_right, $clip_top, $ratio);
 	
 	# Draw the title:
 	if ($self->{titleSpace}) {
@@ -601,7 +611,7 @@ sub on_paint {
 		$canvas->font->style(fs::Bold);
 		
 		# Draw the title:
-		$canvas->draw_text($self->{title}, 0, $height - $self->{titleSpace}
+		$canvas->draw_text($self->{title}, 0, $height - $self->{titleSpace} * $ratio
 				, $width, $height
 				, dt::Center | dt::VCenter | dt::NewLineBreak | dt::NoWordWrap
 				| dt::UseExternalLeading);
@@ -867,11 +877,9 @@ sub save_to_postscript {
 		},
 		pageSize => [$self->size],
 		pageMargins => [0, 0, 0, 0],
-		scale => [3, 3],
-		font => {
-			size => 8,
-		},
 	);
+	$ps->resolution($self->resolution);
+	$ps->font(size => 16);
 	
 	$ps->begin_doc
 		or do {
