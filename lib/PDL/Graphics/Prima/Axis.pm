@@ -494,7 +494,11 @@ sub repaint_parent {
 }
 *on_changebounds = \&repaint_parent;
 *on_changescaling = \&repaint_parent;
-*on_changelabel = \&update_edges;
+sub on_changelabel {
+	my $self = shift;
+	$self->update_edges;
+	$self->repaint_parent;
+}
 
 =head2 ChangeBounds
 
@@ -953,6 +957,11 @@ Specifies a collection of different color palettes
 =item L<PDL::Graphics::Prima::PlotType>
 
 Defines the different ways to visualize your data
+
+=item L<PDL::Graphics::Prima::ReadLine>
+
+Encapsulates all interaction with the L<Term::ReadLine> family of
+modules.
 
 =item L<PDL::Graphics::Prima::Scaling>
 

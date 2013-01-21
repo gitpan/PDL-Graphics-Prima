@@ -1399,7 +1399,10 @@ sub compute_collated_min_max_for {
 	my ($xs, $ys) = $self->dataset->get_data;
 	
 	# Return "nothing" if the datasets are empty
-	return zeroes($pixel_extent + 1)->setvaltobad(0) if $xs->nelem == 0;
+	if ($xs->nelem == 0) {
+		my $to_return = zeroes($pixel_extent + 1)->setvaltobad(0);
+		return ($to_return, $to_return->copy);
+	}
 	
 	# For the y min/max, get the y-data, the padding, and the baseline:
 	if ($axis_name eq 'y') {
@@ -3006,6 +3009,11 @@ Specifies a collection of different color palettes
 =item L<PDL::Graphics::Prima::PlotType>
 
 Defines the different ways to visualize your data
+
+=item L<PDL::Graphics::Prima::ReadLine>
+
+Encapsulates all interaction with the L<Term::ReadLine> family of
+modules.
 
 =item L<PDL::Graphics::Prima::Scaling>
 

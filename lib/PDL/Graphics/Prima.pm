@@ -2,7 +2,7 @@ use strict;
 use warnings;
 
 package PDL::Graphics::Prima;
-our $VERSION = 0.10;
+our $VERSION = '0.11';
 
 package Prima::Plot;
 use PDL::Lite;
@@ -938,6 +938,17 @@ sub copy_to_clipboard {
 	$clipboard->close;
 }
 
+
+# Add automatic support for PDL terminal interactivity
+sub import {
+	my $class = shift;
+	
+	if (defined $PERLDL::TERM and $Term::ReadLine::VERSION > 1.08) {
+		require PDL::Graphics::Prima::ReadLine;
+		PDL::Graphics::Prima::ReadLine->import($PERLDL::TERM);
+	}
+}
+
 1;
 
 =head1 RESPONSIBILITIES
@@ -1093,6 +1104,11 @@ Specifies a collection of different color palettes
 =item L<PDL::Graphics::Prima::PlotType>
 
 Defines the different ways to visualize your data
+
+=item L<PDL::Graphics::Prima::ReadLine>
+
+Encapsulates all interaction with the L<Term::ReadLine> family of
+modules.
 
 =item L<PDL::Graphics::Prima::Scaling>
 
