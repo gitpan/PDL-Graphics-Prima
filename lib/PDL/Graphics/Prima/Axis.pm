@@ -46,10 +46,8 @@ PDL::Graphics::Prima::Axis - class for axis handling
  $plot->y->min(-5);
  # Turn on x min autoscaling:
  $plot->x->min(lm::Auto);
- # Stop autoscaling, use the current max:
- $plot->x->max(lm::Hold);
- # ... which is equivalent to:
- $plot->x->max( scalar $plot->x->max );
+ # Stop autoscaling, use the current max (deprecated):
+ $plot->x->max($plot->x->max);
  
  # Note: All changes to min/max values
  # fire the ChangeBounds notification
@@ -132,7 +130,7 @@ sub init {
 	# y axis. Set the non-changing parts here and then set the changing
 	# parts by calling _label. The four elements are the left edge, the
 	# bottom edge, the right edge, and the top edge:
-	if ($self->name eq 'x') {
+	if ($self->name =~ /^x/) {
 		$self->{edge_requirements} = [$em_height, 0, $em_height, 0];
 	}
 	else {
@@ -164,55 +162,6 @@ sub init {
 	}
 }
 
-# low-level setter; does not notify
-sub _label {
-	my ($self, $label) = @_;
-	
-	# Consider recomputing these each time, or setting an accessor for font
-	# settings:
-	my ($em_width, $em_height) = $self->em_dims;
-	
-	# Is the label blank or undefined?
-	if (not defined $label or $label eq '') {
-		# Remove the label in that case:
-		$self->{label} = '';
-		
-		# Set the edge requirements based on axis type:
-		if ($self->name eq 'x') {
-			# Set bottom edge requirement:
-			$self->{edge_requirements}->[1] = 1.5 * $em_height;
-		}
-		else {
-			# Set left edge requirement:
-			$self->{edge_requirements}->[0] = 4 * $em_width;
-		}
-	}
-	else {
-		# Set the label:
-		$self->{label} = $label;
-		
-		# Set the edge requirements absed on axis type:
-		if ($self->name eq 'x') {
-			# Set bottom edge requirement:
-			$self->{edge_requirements}->[1] = 3 * $em_height;
-		}
-		else {
-			# Set left edge requirement to accomodate the tick labels and
-			# the axis label:
-			$self->{edge_requirements}->[0]
-				= 4 * $em_width + 1.5 * $em_height;
-		}
-	}
-}
-
-sub label {
-	return $_[0]->{label} if @_ == 1;
-	my ($self, $label) = @_;
-	return if $label eq $self->{label};
-	$self->_label($label);
-	$self->notify('ChangeLabel');
-}
-
 # Return the space needed to draw axis labels and tick labels.
 sub get_edge_requirements {
 	return @{$_[0]->{edge_requirements}};
@@ -232,7 +181,7 @@ sub recalculate_edge_requirements {
 	my ($axis, $canvas) = @_;
 	
 	# x edge requirements never change (at the moment)
-	return if $axis->name eq 'x';
+	return if $axis->name =~ /^x/;
 	
 	my ($Ticks) = $axis->get_Ticks_and_ticks;
 	my (undef, $em_height) = $axis->em_dims;
@@ -267,7 +216,7 @@ sub update_edges {
 	
 	# Get and store the new edges:
 	my @edges = $self->owner->get_edge_requirements;
-	if ($self->name eq 'x') {
+	if ($self->name =~ /^x/) {
 		$self->{lowerEdge} = $edges[0];
 		$self->{edgeWidth} = $self->owner->width - $edges[2] - $edges[0];
 	}
@@ -288,7 +237,7 @@ sub update_edges {
 	# Get and store the new edges, again, as autoscaling might have changed
 	# things:
 	@edges = $self->owner->get_edge_requirements;
-	if ($self->name eq 'x') {
+	if ($self->name =~ /^x/) {
 		$self->{lowerEdge} = $edges[0];
 		$self->{edgeWidth} = $self->owner->width - $edges[2] - $edges[0];
 	}
@@ -324,7 +273,7 @@ sub _min {
 		$self->{minAuto} = 1;
 		$self->update_edges;
 	}
-	elsif ($new_value == lm::Hold) {
+	elsif ($new_value == lm::HoldNoWarn) {
 		# Hold means they want to keep the current bounds, so stop
 		# auto-scaling:
 		$self->{minAuto} = 0;
@@ -364,7 +313,7 @@ sub _max {
 		$self->{maxAuto} = 1;
 		$self->update_edges;
 	}
-	elsif ($new_value == lm::Hold) {
+	elsif ($new_value == lm::HoldNoWarn) {
 		# Hold means they want to keep the current bounds, so stop
 		# auto-scaling:
 		$self->{maxAuto} = 0;
@@ -454,9 +403,9 @@ scaling does not. At the moment, if you try to switch to Logarithmic scaling
 without ensuring that the current min and max are positive, this will die
 telling you that negative values are not allowed.
 
-=cut
+For more details about scaling, see L<PDL::Graphics::Prima::Scaling>.
 
-# working here - document
+=cut
 
 sub scaling {
 	return $_[0]->{scaling} unless $#_;
@@ -464,6 +413,64 @@ sub scaling {
 	# such as negative limits with logarithmic scaling?
 	$_[0]->{scaling} = $_[1];
 	$_[0]->notify('ChangeScaling');
+}
+
+=head2 label
+
+Gets or sets the axis' label. You can remove the label by passing an empty
+string or by explicitly passing an undefined value. Adding a label will cause
+the viewing rectangle to shrink so that your widget can accomodate the label
+dimensions.
+
+=cut
+
+# low-level setter; does not notify
+sub _label {
+	my ($self, $label) = @_;
+	
+	# Consider recomputing these each time, or setting an accessor for font
+	# settings:
+	my ($em_width, $em_height) = $self->em_dims;
+	
+	# Is the label blank or undefined?
+	if (not defined $label or $label eq '') {
+		# Remove the label in that case:
+		$self->{label} = '';
+		
+		# Set the edge requirements based on axis type:
+		if ($self->name =~ /^x/) {
+			# Set bottom edge requirement:
+			$self->{edge_requirements}->[1] = 1.5 * $em_height;
+		}
+		else {
+			# Set left edge requirement:
+			$self->{edge_requirements}->[0] = 4 * $em_width;
+		}
+	}
+	else {
+		# Set the label:
+		$self->{label} = $label;
+		
+		# Set the edge requirements absed on axis type:
+		if ($self->name =~ /^x/) {
+			# Set bottom edge requirement:
+			$self->{edge_requirements}->[1] = 3 * $em_height;
+		}
+		else {
+			# Set left edge requirement to accomodate the tick labels and
+			# the axis label:
+			$self->{edge_requirements}->[0]
+				= 4 * $em_width + 1.5 * $em_height;
+		}
+	}
+}
+
+sub label {
+	return $_[0]->{label} if @_ == 1;
+	my ($self, $label) = @_;
+	return if $label eq $self->{label};
+	$self->_label($label);
+	$self->notify('ChangeLabel');
 }
 
 =head1 NOTIFICATIONS
@@ -490,7 +497,9 @@ user or other interaction.
 
 sub repaint_parent {
 	my $axis = shift;
-	$axis->owner->notify('Replot')
+	$axis->owner->notify('Paint');
+	# Clear the event queue so this hits immediately in the PDL shell
+	$::application->yield if defined $::application;
 }
 *on_changebounds = \&repaint_parent;
 *on_changescaling = \&repaint_parent;
@@ -616,7 +625,7 @@ sub get_Ticks_and_ticks {
 	my ($em_width, $em_height) = $axis->em_dims;
 	my ($padded_min, $padded_max);
 	
-	if ($axis->name eq 'x') {
+	if ($axis->name =~ /^x/) {
 		$padded_min = $axis->pixels_to_reals(
 			$axis->reals_to_pixels(scalar ($axis->min), $ratio) - $em_width,
 			$ratio);
@@ -671,7 +680,7 @@ sub draw {
 	my $top_bottom = pdl($clip_bottom, $clip_top)->transpose;
 	my $left_right = pdl($clip_left, $clip_right)->transpose;
 	
-	if ($axis->name eq 'x') {
+	if ($axis->name =~ /^x/) {
 		# Ensure the tick marks are exactly clipped:
 		$canvas->clipRect($clip_left, 0, $clip_right, $canvas->height);
 
@@ -714,8 +723,8 @@ sub draw {
 
 		# Draw the label, if it exists
 		if ($axis->{label}) {
-			$canvas->draw_text($axis->{label}, $clip_left, 0, $clip_right
-				, 1.25 * $em_height
+			$canvas->draw_text($axis->{label}, $clip_left, 0.25 * $em_height
+				, $clip_right, 1.5 * $em_height
 				, dt::Center | dt::Top | dt::NewLineBreak | dt::NoWordWrap
 					| dt::UseExternalLeading);
 		}
@@ -922,52 +931,46 @@ drawing needs to happen. I am thinking at the moment about broken axes.
 
 David Mertens (dcmertens.perl@gmail.com)
 
-=head1 SEE ALSO
+=head1 ADDITIONAL MODULES
 
-This is a component of L<PDL::Graphics::Prima>. This library is composed of many
-modules, including:
+Here is the full list of modules in this distribution:
 
 =over
 
-=item L<PDL::Graphics::Prima>
+=item L<PDL::Graphics::Prima|PDL::Graphics::Prima/>
 
 Defines the Plot widget for use in Prima applications
 
-=item L<PDL::Graphics::Prima::Axis>
+=item L<PDL::Graphics::Prima::Axis|PDL::Graphics::Prima::Axis/>
 
 Specifies the behavior of axes (but not the scaling)
 
-=item L<PDL::Graphics::Prima::DataSet>
+=item L<PDL::Graphics::Prima::DataSet|PDL::Graphics::Prima::DataSet/>
 
 Specifies the behavior of DataSets
 
-=item L<PDL::Graphics::Prima::Internals>
-
-A dumping ground for my partial documentation of some of the more complicated
-stuff. It's not organized, so you probably shouldn't read it.
-
-=item L<PDL::Graphics::Prima::Limits>
+=item L<PDL::Graphics::Prima::Limits|PDL::Graphics::Prima::Limits/>
 
 Defines the lm:: namespace
 
-=item L<PDL::Graphics::Prima::Palette>
+=item L<PDL::Graphics::Prima::Palette|PDL::Graphics::Prima::Palette/>
 
 Specifies a collection of different color palettes
 
-=item L<PDL::Graphics::Prima::PlotType>
+=item L<PDL::Graphics::Prima::PlotType|PDL::Graphics::Prima::PlotType/>
 
 Defines the different ways to visualize your data
 
-=item L<PDL::Graphics::Prima::ReadLine>
+=item L<PDL::Graphics::Prima::ReadLine|PDL::Graphics::Prima::ReadLine/>
 
 Encapsulates all interaction with the L<Term::ReadLine> family of
 modules.
 
-=item L<PDL::Graphics::Prima::Scaling>
+=item L<PDL::Graphics::Prima::Scaling|PDL::Graphics::Prima::Scaling/>
 
 Specifies different kinds of scaling, including linear and logarithmic
 
-=item L<PDL::Graphics::Prima::Simple>
+=item L<PDL::Graphics::Prima::Simple|PDL::Graphics::Prima::Simple/>
 
 Defines a number of useful functions for generating simple and not-so-simple
 plots
@@ -979,10 +982,10 @@ plots
 Portions of this module's code are copyright (c) 2011 The Board of Trustees at
 the University of Illinois.
 
-Portions of this module's code are copyright (c) 2011-2012 Northwestern
+Portions of this module's code are copyright (c) 2011-2013 Northwestern
 University.
 
-This module's documentation are copyright (c) 2011-2012 David Mertens.
+This module's documentation are copyright (c) 2011-2013 David Mertens.
 
 All rights reserved.
 

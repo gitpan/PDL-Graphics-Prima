@@ -4,7 +4,7 @@
       "David Mertens (dcmertens.perl@gmail.com)"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "Module::Build version 0.4003, CPAN::Meta::Converter version 2.120921",
+   "generated_by" : "Module::Build version 0.38, CPAN::Meta::Converter version 2.120921",
    "license" : [
       "perl_5"
    ],
@@ -31,7 +31,7 @@
    "provides" : {
       "PDL::Graphics::Prima" : {
          "file" : "lib/PDL/Graphics/Prima.pm",
-         "version" : "0.12"
+         "version" : "0.13"
       },
       "PDL::Graphics::Prima::Axis" : {
          "file" : "lib/PDL/Graphics/Prima/Axis.pm",
@@ -49,6 +49,10 @@
          "file" : "lib/PDL/Graphics/Prima/DataSet.pm",
          "version" : 0
       },
+      "PDL::Graphics::Prima::DataSet::Dist" : {
+         "file" : "lib/PDL/Graphics/Prima/DataSet.pm",
+         "version" : 0
+      },
       "PDL::Graphics::Prima::DataSet::Func" : {
          "file" : "lib/PDL/Graphics/Prima/DataSet.pm",
          "version" : 0
@@ -62,10 +66,6 @@
          "version" : 0
       },
       "PDL::Graphics::Prima::DataSet::Pair" : {
-         "file" : "lib/PDL/Graphics/Prima/DataSet.pm",
-         "version" : 0
-      },
-      "PDL::Graphics::Prima::DataSet::Set" : {
          "file" : "lib/PDL/Graphics/Prima/DataSet.pm",
          "version" : 0
       },
@@ -165,23 +165,7 @@
          "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
          "version" : 0
       },
-      "PDL::Graphics::Prima::PlotType::Role::Histogram" : {
-         "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
-         "version" : 0
-      },
       "PDL::Graphics::Prima::PlotType::Role::Raster" : {
-         "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
-         "version" : 0
-      },
-      "PDL::Graphics::Prima::PlotType::Set" : {
-         "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
-         "version" : 0
-      },
-      "PDL::Graphics::Prima::PlotType::Set::CDF" : {
-         "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
-         "version" : 0
-      },
-      "PDL::Graphics::Prima::PlotType::Set::Histogram" : {
          "file" : "lib/PDL/Graphics/Prima/PlotType.pm",
          "version" : 0
       },
@@ -204,14 +188,6 @@
       "Prima::Plot" : {
          "file" : "lib/PDL/Graphics/Prima.pm",
          "version" : 0
-      },
-      "lm" : {
-         "file" : "lib/PDL/Graphics/Prima/Limits.pm",
-         "version" : 0
-      },
-      "sc" : {
-         "file" : "lib/PDL/Graphics/Prima/Scaling.pm",
-         "version" : 0
       }
    },
    "release_status" : "stable",
@@ -226,5 +202,5 @@
          "url" : "http://github.com/run4flat/PDL-Graphics-Prima"
       }
    },
-   "version" : "0.1001"
+   "version" : "0.13"
 }

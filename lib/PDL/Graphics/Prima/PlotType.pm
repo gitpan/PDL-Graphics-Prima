@@ -69,323 +69,6 @@ as documented.
 
 =cut
 
-
-###############################################################################
-#                        Distribution-based Plot Types                        #
-###############################################################################
-
-package PDL::Graphics::Prima::PlotType::Set;
-use base 'PDL::Graphics::Prima::PlotType';
-
-=head2 Sets
-
-A set of data is an unordered collection. Usually the goal is to get some
-insights into the distribution of the data. For example, if you have a
-collection of the heights of students in a class, you would expect them to be
-distributed normally. You could visualize that by plotting a histogram of the
-heights and comparing that to a bell curve, for example. The plot types
-associated with sets are C<pset::CDF> and C<pset::Hist>.
-
-=over
-
-=cut
-
-############################################
-# PDL::Graphics::Prima::PlotType::Set::CDF #
-############################################
-
-=item pset::CDF
-
-This plots the cumulative distribution function for a set. Given an unordered
-set of data (as a piddle), it plots a continuous line 
-
- increasing => 1
- normalized => 1
- offset => not yet implemented
-
-=cut
-
-package PDL::Graphics::Prima::PlotType::Set::CDF;
-use base 'PDL::Graphics::Prima::PlotType::Set';
-
-# Install the short name constructor:
-sub pset::CDF {
-	PDL::Graphics::Prima::PlotType::Set::CDF->new(@_);
-}
-
-# I decided to include the 'normalized' and 'increasing' properties.
-sub initialize {
-	my $self = shift;
-
-	# Call the superclass initialization:
-	$self->SUPER::initialize(@_);
-	
-	# Give a default values. Note that I do not need to validate these
-	# because they simply need to be evaluable in boolean context. It would
-	# only be a problem if they used a piddle for these:
-	$self->{normalized} = 1 unless defined $self->{normalized};
-	$self->{increasing} = 1 unless defined $self->{increasing};
-	# If I use an offset, I need to modify the y-collation
-}
-
-# Collation is a little tricky and has different behavior between the x-
-# and y- calcuations:
-sub compute_collated_min_max_for {
-	my ($self, $axis_name, $pixel_extent) = @_;
-	
-	# Get the list of properties for which we need to look for bad values:
-	my %properties = $self->generate_properties(
-		@PDL::Drawing::Prima::polylines_props);
-	
-	# Extract the line widths, against which we'll collate:
-	my $lineWidths = $properties{lineWidths};
-	$lineWidths = $self->widget->lineWidth unless defined $lineWidths;
-	delete $properties{lineWidths};
-	# get the rest of the piddles, which are associated with plural keys
-	my @prop_piddles;
-	while(my ($k, $v) = each %properties) {
-		push @prop_piddles, $v if $k =~ /s$/;
-	}
-	
-	# Get the data:
-	my $set = $self->dataset->get_data;
-	
-	# The y- and x-data handling are quite different:
-	if ($axis_name eq 'y') {
-		# Compute the y-min, either 0 or bad:
-		my $ymin = $set->ngoodover == 0;
-		$ymin = $ymin->setbadif($ymin == 1);
-		# Compute the y-max, which is either 1, the number of good elements,
-		# or bad:
-		my $ymax = $set->ngoodover;
-		$ymax = $ymax->setbadif($ymax == 0);
-		$ymax->where($ymax > 0) .= 1 if $self->{normalized};
-		
-		return PDL::collate_min_max_wrt_many($ymin, $lineWidths
-				, $ymax, $lineWidths, $pixel_extent, @prop_piddles);
-	}
-	
-	# Arrived here means we are dealing with x-data:
-	my ($xmin, $xmax) = $set->minmaximum;
-	
-	# Collate and return:
-	return PDL::collate_min_max_wrt_many($xmin, $lineWidths, $xmax
-		, $lineWidths, $pixel_extent, @prop_piddles);
-}
-
-
-# This draws the CDFS:
-sub draw {
-	my ($self, $canvas, $ratio) = @_;
-	
-	my %properties = $self->generate_properties(
-		@PDL::Drawing::Prima::polylines_props);
-	
-	# Retrieve the data from the dataset and sort:
-	my $xs = $self->dataset->get_data->qsort;
-	# Compute the associated heights:
-	my $ys = $xs->xvals;
-	$ys -= $xs->ngoodover->dummy(0) if not $self->{increasing};
-	$ys /= $ys->maximum->dummy(0) if $self->{normalized};
-	
-	# Convert these xs and ys to pixels:
-	$xs = $self->widget->x->reals_to_pixels($xs, $ratio);
-	$ys = $self->widget->y->reals_to_pixels($ys, $ratio);
-	
-	# Draw the curves:
-	$canvas->pdl_polylines($xs, $ys, %properties);
-}
-
-
-###################################################
-# PDL::Graphics::Prima::PlotType::Role::Histogram #
-###################################################
-
-# A role that implements many things needed for histogram drawing
-package PDL::Graphics::Prima::PlotType::Role::Histogram;
-use Carp;
-
-
-sub initialize {
-	my $self = shift;
-	
-	# Default to an upper padding of of 10 pixels:
-	$self->{topPadding} = 10 unless defined $self->{topPadding};
-	croak("topPadding must be a nonnegative integer")
-		unless $self->{topPadding} =~ /^\d+$/ and $self->{topPadding} >= 0;
-	
-	# Make sure we have a default baseline:
-	$self->{baseline} = 0 unless defined $self->{baseline};
-	$self->{baseline} += 0;
-}
-
-##################################################
-# PDL::Graphics::Prima::PlotType::Set::Histogram #
-##################################################
-
-=item pset::Hist
-
-working here
-
-This is still a work in progress and these are just my notes.
-
- baseline   => SCALAR (0)
- topPadding => SCALAR (10)
- 
- binning    => 'lin[ear]', 'log[arithmic]', \&funcref
- nbins      => SCALAR (20)
- min        => SCALAR (undef, i.e. data-min)
- max        => SCALAR (undef, i.e. data-max)
- truncate   => BOOLEAN ('', i.e. false)
-
-=cut
-
-package PDL::Graphics::Prima::PlotType::Set::Histogram;
-use Carp;
-
-# Install the short name constructor:
-sub pset::Histogram {
-	PDL::Graphics::Prima::PlotType::Set::Histogram->new(@_);
-}
-
-# The histogram initializer ensures that the top padding is set to a reasonable
-# value (defaults to 5 pixels):
-sub initialize {
-	my $self = shift;
-	$self->SUPER::initialize(@_);
-	PDL::Graphics::Prima::PlotType::Role::Histogram::initialize($self);
-}
-
-
-# Returns user-supplied or computed bin-edge data.
-sub get_bin_edges {
-	# Return the bin-edges if we have an internal copy of them:
-	return $_[0]->{binEdges} if exists $_[0]->{binEdges};
-	
-	my ($self) = @_;
-	
-	# Compute linear bin edges if none are supplied:
-	my $xs = $self->dataset->get_xs;
-	my @dims = $xs->dims;
-	@dims > 0 or @dims = (1);
-	$dims[0]++;
-	# The widths are based on the left and right values of x, unless
-	# there is only one x-entry, in which case we have a degeneracy
-	# problem
-	my $edges;
-	if ($dims[0] > 2) {
-		my $widths = $xs(1,) - $xs(0,);
-		$edges = xvals(@dims) * $widths + $xs(0,) - $widths/2;
-	}
-	elsif ($dims[0] == 2) {
-		# Set the default width to half the x-value
-		my $widths = $xs / 2;
-		# If the x-value is zero, set the width to 1
-		$widths->where($widths == 0) .= 1;
-		$edges = xvals(@dims) * $widths + $xs(0,) - $widths/2;
-	}
-	
-	# note: empty piddles are silently ignored
-	
-	# Store these bin edges if the underlying dataset is static:
-	$self->{binEdges} = $edges unless ref($self->dataset) =~ /Func/;
-	
-	return $edges;
-}
-
-
-
-
-
-# working here - implement get_x_y_data, get_bin_edges
-
-
-
-
-
-# The collation code:
-sub compute_collated_min_max_for {
-	my ($self, $axis_name, $pixel_extent) = @_;
-	
-	# Get the list of properties for which we need to look for bad values:
-	my %properties = $self->generate_properties(@PDL::Drawing::Prima::rectangles_props);
-	
-	# Extract the line widths, against which we'll collate:
-	my $lineWidths = $properties{lineWidths};
-	$lineWidths = $self->widget->lineWidth unless defined $lineWidths;
-	delete $properties{lineWidths};
-	
-	# get the rest of the piddles, which are associated with plural keys
-	my @prop_piddles;
-	while(my ($k, $v) = each %properties) {
-		push @prop_piddles, $v if $k =~ /s$/;
-	}
-	
-	my ($xs, $ys) = $self->get_x_y_data;
-	
-	# Return "nothing" if the datasets are empty
-	return zeroes($pixel_extent + 1)->setvaltobad(0) if $xs->nelem == 0;
-	
-	# For the y min/max, get the y-data, the padding, and the baseline:
-	if ($axis_name eq 'y') {
-		my $to_check = $ys->append(zeroes(1) + $self->{baseline});
-		my $top_padding = $lineWidths;
-		$top_padding += $self->{topPadding} if any $to_check > $self->{baseline};
-		my $bottom_padding = $lineWidths;
-		$bottom_padding += $self->{topPadding} if any $to_check < $self->{baseline};
-		
-		return PDL::collate_min_max_wrt_many($to_check, $bottom_padding
-			, $to_check, $top_padding, $pixel_extent
-			, $xs->append(zeroes(1)), @prop_piddles);
-	}
-	# For the x min/max, get the bin edges and collate by line width:
-	else {
-		my $edges = $self->get_bin_edges;
-		
-		# Handle degenerate edge case
-		if ($edges->dim(0) == 2) {
-			return PDL::collate_min_max_wrt_many($edges(0), $lineWidths
-				, $edges(1), $lineWidths, $pixel_extent
-				, $ys, @prop_piddles);
-		}
-		
-		return PDL::collate_min_max_wrt_many($edges(0:-2), $lineWidths
-			, $edges(1:-1), $lineWidths, $pixel_extent
-			, $ys, @prop_piddles);
-	}
-}
-
-
-sub draw {
-	my ($self, $canvas, $ratio) = @_;
-	my $dataset = $self->dataset;
-	my $widget = $self->widget;
-	
-	# Assemble the various properties from the plot-type object and the dataset
-	my %properties = $self->generate_properties(@PDL::Drawing::Prima::rectangles_props);
-	
-	# Get the edges and skip out if we have an empty case
-	my $edges = $self->get_bin_edges($dataset, $widget);
-	return unless defined $edges;
-	
-	# convert everything to pixels
-	my $pixel_edges = $widget->x->reals_to_pixels($edges, $ratio);
-	my $pixel_bottom = $widget->y->reals_to_pixels($self->{baseline}, $ratio);
-	my $ys = $widget->y->reals_to_pixels($dataset->get_ys, $ratio);
-	
-	$canvas->pdl_rectangles($pixel_edges(0:-2), $pixel_bottom
-			, $pixel_edges(1:-1), $ys, %properties);
-}
-
-
-
-
-
-=back
-
-
-=cut
-
 ###############################################################################
 #                            Pair-based Plot Types                            #
 ###############################################################################
@@ -401,7 +84,6 @@ sub get_data_as_pixels {
 	return ($self->widget->x->reals_to_pixels($xs, $ratio)
 		, $self->widget->y->reals_to_pixels($ys, $ratio));
 }
-
 
 =head2 Pairs
 
@@ -554,7 +236,7 @@ sub draw {
 
 =for ref
 
- ppair::Trendlines( [[thread_like => STRING,] [weights => PDL,]
+ ppair::Trendlines( [thread_like => STRING,] [weights => PDL,]
                  [along_dim => INTEGER,] options )
 
 Draws linear fits to the x/y data as lines. This is a descendent of
@@ -1092,7 +774,7 @@ give descriptive names to many common symbols and include:
 
 =over
 
-=item Sticks
+=item ppair::Sticks
 
 =for ref
 
@@ -1108,7 +790,7 @@ sub ppair::Sticks {
 	PDL::Graphics::Prima::PlotType::Pair::Symbols->new(@_, N_points => 2, filled => 'no');
 }
 
-=item Triangles
+=item ppair::Triangles
 
 =for ref
 
@@ -1126,7 +808,7 @@ sub ppair::Triangles {
 	PDL::Graphics::Prima::PlotType::Pair::Symbols->new(orientation => 'up', @_, N_points => 3);
 }
 
-=item Squares
+=item ppair::Squares
 
 =for ref
 
@@ -1142,7 +824,7 @@ sub ppair::Squares {
 	PDL::Graphics::Prima::PlotType::Pair::Symbols->new(@_, N_points => 4, orientation => 45);
 }
 
-=item Diamonds
+=item ppair::Diamonds
 
 =for ref
 
@@ -1158,7 +840,7 @@ sub ppair::Diamonds {
 	PDL::Graphics::Prima::PlotType::Pair::Symbols->new(@_, N_points => 4, orientation => 0);
 }
 
-=item Stars
+=item ppair::Stars
 
 =for ref
 
@@ -1178,7 +860,7 @@ sub ppair::Stars {
 	PDL::Graphics::Prima::PlotType::Pair::Symbols->new(orientation => 90, @_, skip => 2);
 }
 
-=item Asterisks
+=item ppair::Asterisks
 
 =for ref
 
@@ -1196,7 +878,7 @@ sub ppair::Asterisks {
 	PDL::Graphics::Prima::PlotType::Pair::Symbols->new(orientation => 90, @_, skip => 0);
 }
 
-=item Xs
+=item ppair::Xs
 
 =for ref
 
@@ -1211,7 +893,7 @@ sub ppair::Xs {
 	PDL::Graphics::Prima::PlotType::Pair::Symbols->new(@_, N_points => 4, orientation => 45, skip => 0);
 }
 
-=item Crosses
+=item ppair::Crosses
 
 =for ref
 
@@ -1245,21 +927,25 @@ sub ppair::Crosses {
 # PDL::Graphics::Prima::PlotType::Pair::Histogram #
 #######################################################
 
-=item Histogram
+=item ppair::Histogram
 
 =for ref
 
  ppair::Histogram( [binEdges => PDL], [baseline => SCALAR],
                 [topPadding => SCALAR], options )
 
-Draws a histogram with bin-centers at the data's x-values and heights at the
-data's y-values. Both positive and negative y-values are allowed.
+Draws a histogram. The bin-centers that are approximated from the x-values
+and the bin heights are set as the data's y-values. Both positive and
+negative y-values are allowed.
 
-Histogram assumes linear bin spacing and simply takes the space between the
-first and second x-values to be the bin width. If you are plotting a
-histogram with different spacing, such as quadratic or logarithmic, you will
-need to compute the spacing on your own and specify the spacing using the
-binEdges key:
+Histogram computes the inter-point bin edges as the mid-point between each
+(sequential) pair of x-values. For the first and last bins, the outer edge
+is the same distance from the center as the corresponding inner edge. If all
+of your bins have the same width, this will give you exactly what you mean.
+If your bins do not have identical widths, the center of the bin is
+guaranteed to fall somewhere within the bin boundaries, but it won't be in
+the "center". For greater control of where the bin boundaries are placed,
+you should specify the binEdges key:
 
  ppair::Histogram(binEdges => $bin_edges)
 
@@ -1320,7 +1006,15 @@ sub ppair::Histogram {
 sub initialize {
 	my $self = shift;
 	$self->SUPER::initialize(@_);
-	PDL::Graphics::Prima::PlotType::Role::Histogram::initialize($self);
+	
+	# Default to an upper padding of of 10 pixels:
+	$self->{topPadding} = 10 unless defined $self->{topPadding};
+	croak("topPadding must be a nonnegative integer")
+		unless $self->{topPadding} =~ /^\d+$/ and $self->{topPadding} >= 0;
+	
+	# Make sure we have a default baseline:
+	$self->{baseline} = 0 unless defined $self->{baseline};
+	$self->{baseline} += 0;
 }
 
 
@@ -1341,8 +1035,11 @@ sub get_bin_edges {
 	# problem
 	my $edges;
 	if ($dims[0] > 2) {
-		my $widths = $xs(1,) - $xs(0,);
-		$edges = xvals(@dims) * $widths + $xs(0,) - $widths/2;
+		my $widths = $xs(1:-1,) - $xs(0:-2,);
+		$edges = zeroes(@dims);
+		$edges(1:-2,) .= $xs(0:-2,) + $widths/2;
+		$edges(0,) .= $xs(0,) - $widths(0,) / 2;
+		$edges(-1,) .= $xs(-1,) + $widths(-1,) / 2;
 	}
 	elsif ($dims[0] == 2) {
 		# Set the default width to half the x-value
@@ -1858,7 +1555,7 @@ sub draw {
 
 =head2 Grid-based plot types
 
-Other plots focus on using color or greyscale to visualize data that is a
+Other plots focus on using color or grayscale to visualize data that is a
 function of two variables. If you need to visualize the elements of a matrix,
 you will use these plot types. If would like to
 visualize an image and have already computed the RGB, HSV, or similar values,
@@ -1898,7 +1595,7 @@ use Carp 'croak';
 
 This plot type lets you specify colors or values on a grid to visualize
 rasterized contour plots (as opposed to line contour plots).
-The default palette is a greyscale one but you can specify whichever
+The default palette is a grayscale one but you can specify whichever
 palette you like. See L<PDL::Graphics::Prima::Palette>. If would like to
 visualize an image and have already computed the RGB, HSV, or similar values,
 you should use pimage::Basic instead.
@@ -1927,6 +1624,8 @@ sub initialize {
 	unless (exists $self->{palette}) {
 		$self->{palette} = pal::WhiteToBlack;
 	}
+	# XXX any reason we check for definedness? Any reason we don't croak if
+	# the palette exists but is not defined? working here
 	$self->{palette}->plotType($self) if defined $self->{palette};
 }
 
@@ -1954,9 +1653,21 @@ our @ISA = qw(PDL::Graphics::Prima::PlotType);
 
 While Grid-based plots focus on imaging data with a specified palette,
 Image-based plots focus on plotting data that has already been converted to
-a color representation.
+a color representation. At the moment, there is only one plot type for
+images (and there likely will remain only one plot type unless a stroke of
+brilliance hits me). As it is automatically used as the default plot type by
+L<ds::Image/PDL::Graphics::Prima::DataSet/ds::Image>, and as it does not
+have any configuration that cannot be specified in the data set, you
+probably can ignore this.
 
-working here - more details
+=item pimage::Basic
+
+The most basic image plot type simply draws the imge with the palette
+provided by the plot type
+
+=for ref
+
+ pimage::Basic()
 
 =cut
 
@@ -2045,7 +1756,7 @@ of the right axis.
 
 Here's another one. As a y-specification, this will give a location that is
 five pixels below the y-value of 12. As an x-specification, this will give a
-location that is fixe pixels to the left of the x-value of 12.
+location that is five pixels to the left of the x-value of 12.
 
  # input 
  $spec_string = '12 - 5px';
@@ -2506,9 +2217,25 @@ sub draw {
 	my $x = $self->compute_position($self->{x}, $self->widget->x, $ratio);
 	my $y = $self->compute_position($self->{y}, $self->widget->y, $ratio);
 	
+	# Set the properties for the text drawing operation and back up the old
+	# properties
+	my %properties = $self->generate_properties(qw(
+		color backColor font rop textOpaque textOutBaseline
+	));
+	my %backups = $canvas->get(keys %properties);
+	if (exists $properties{font}) {
+		$canvas->font->set(
+			%{$properties{font}}
+		);
+		delete $properties{font};
+	}
+	$canvas->set(%properties);
+	
+	# Draw the text
 	$canvas->text_out($self->{text}, $x, $y);
 	
-	# Restore the clip rectangle
+	# Restore the old properties and clip rectangle
+	$canvas->set(%backups);
 	$canvas->clipRect(@clip_rect);
 }
 
@@ -2668,12 +2395,16 @@ sub compute_collated_min_max_for {
 
 =head2 generate_properties
 
-Needs to be explained. Basically, this accumulates all the properties from the
-plotType object together with those from the dataset into a single hash that
-you can submit to one of the (PDL-based) Prima drawing methods.
+This method accumulates all the properties from the plotType object together
+with those from the dataset into a single hash that you can submit to one of the
+L<PDL-based Prima drawing methods|PDL::Drawing::Prima/> or (if you are using a
+normal L<Prima::Drawable graphics primitive|Prima::Drawable/Graphic primitives methods>
+and expect that all of the properties will be singular) the set method discussed
+in L<Prima::Object|Prima::Object/>.
 
-This function is provided for your use in the draw() function. You should not
-usually have a need to override it.
+I use this function both in the implementations of the C<draw> and 
+C<collate_min_max_wrt_many> methods, and I have never encountered a reason to
+override it.
 
 =cut
 
@@ -2685,7 +2416,7 @@ sub generate_properties {
 	my ($self, @prop_list) = @_;
 	
 	# Collect singular and plural properties
-	@prop_list = map {/((.*)s)/} @prop_list;
+	@prop_list = map {/((.*)s)$/ ? ($1, $2) : ($_) } @prop_list;
 	
 	my %properties;
 	my $dataset = $self->dataset;
@@ -2693,20 +2424,20 @@ sub generate_properties {
 	# Add all of the specified properties to a local collection that eventually
 	# gets passed to the low-level drawing routine:
 	if (ref($self)) {
-		foreach (@prop_list) {
-			if (exists $self->{$_}) {
-				$properties{$_} = $self->{$_};
+		for my $prop (@prop_list) {
+			if (exists $self->{$prop}) {
+				$properties{$prop} = $self->{$prop};
 			}
-			elsif (exists $dataset->{$_}) {
-				$properties{$_} = $dataset->{$_};
+			elsif (exists $dataset->{$prop}) {
+				$properties{$prop} = $dataset->{$prop};
 			}
 		}
 		
 	}
 	else {
-		foreach (@prop_list) {
-			if (exists $dataset->{$_}) {
-				$properties{$_} = $dataset->{$_};
+		for my $prop (@prop_list) {
+			if (exists $dataset->{$prop}) {
+				$properties{$prop} = $dataset->{$prop};
 			}
 		}
 	}
@@ -2733,9 +2464,13 @@ sub widget {
 	return $_[0]->dataset->widget;
 }
 
+# Weaken the reference to the dataset so that we don't have memory leaks
+use Scalar::Util;
 sub dataset {
-	$_[0]->{dataSet} = $_[1] if (@_ == 2);
-	return $_[0]->{dataSet};
+	return $_[0]->{dataSet} if @_ == 1;
+	my ($self, $dataSet) = @_;
+	$self->{dataSet} = $dataSet;
+	Scalar::Util::weaken($self->{dataSet});
 }
 
 # A function that gets the data, meant to be overloaded:
@@ -2890,9 +2625,12 @@ sub compute_collated_min_max_for {
 
 1;
 
+__END__
+
 =head1 TODO
 
-I have lots of things that need to happen to improve this library.
+I have lots of things that need to happen to improve this component of the
+library.
 
 =over
 
@@ -2900,12 +2638,6 @@ I have lots of things that need to happen to improve this library.
 
 Are string-properties OK, or should they be constants? (threadlike, for example)
 Should properties be threadable?
-
-=item Add support for 3d Plots
-
-Dmitry has written a proof-of-concept widget that uses openGL and it should
-be possible to make many of these plotTypes work with 3d data just as well
-as with 2d data.
 
 =item Documentation on Combining
 
@@ -2950,7 +2682,7 @@ Surely there are others. In addition:
 
 =item PairSet
 
-A plot type that bins Pair data in x/y bins and plots a greyscale. This
+A plot type that bins Pair data in x/y bins and plots a grayscale. This
 would be useful for visualizing huge quantities of x/y data, when plotting
 with points would fail due to too many in the same place.
 
@@ -2968,58 +2700,58 @@ be possible.
 Many of these plottypes could speed up bounds calculations by caching certain
 results. I need to implement a generic interface for caching, and cache clearing.
 
+=item Add support for 3d Plots
+
+Dmitry has written a proof-of-concept widget that uses openGL and it should
+be possible to make many of these plotTypes work with 3d data just as well
+as with 2d data.
+
 =back
 
 =head1 AUTHOR
 
 David Mertens (dcmertens.perl@gmail.com)
 
-=head1 SEE ALSO
+=head1 ADDITIONAL MODULES
 
-This is a component of L<PDL::Graphics::Prima>. This library is composed of many
-modules, including:
+Here is the full list of modules in this distribution:
 
 =over
 
-=item L<PDL::Graphics::Prima>
+=item L<PDL::Graphics::Prima|PDL::Graphics::Prima/>
 
 Defines the Plot widget for use in Prima applications
 
-=item L<PDL::Graphics::Prima::Axis>
+=item L<PDL::Graphics::Prima::Axis|PDL::Graphics::Prima::Axis/>
 
 Specifies the behavior of axes (but not the scaling)
 
-=item L<PDL::Graphics::Prima::DataSet>
+=item L<PDL::Graphics::Prima::DataSet|PDL::Graphics::Prima::DataSet/>
 
 Specifies the behavior of DataSets
 
-=item L<PDL::Graphics::Prima::Internals>
-
-A dumping ground for my partial documentation of some of the more complicated
-stuff. It's not organized, so you probably shouldn't read it.
-
-=item L<PDL::Graphics::Prima::Limits>
+=item L<PDL::Graphics::Prima::Limits|PDL::Graphics::Prima::Limits/>
 
 Defines the lm:: namespace
 
-=item L<PDL::Graphics::Prima::Palette>
+=item L<PDL::Graphics::Prima::Palette|PDL::Graphics::Prima::Palette/>
 
 Specifies a collection of different color palettes
 
-=item L<PDL::Graphics::Prima::PlotType>
+=item L<PDL::Graphics::Prima::PlotType|PDL::Graphics::Prima::PlotType/>
 
 Defines the different ways to visualize your data
 
-=item L<PDL::Graphics::Prima::ReadLine>
+=item L<PDL::Graphics::Prima::ReadLine|PDL::Graphics::Prima::ReadLine/>
 
 Encapsulates all interaction with the L<Term::ReadLine> family of
 modules.
 
-=item L<PDL::Graphics::Prima::Scaling>
+=item L<PDL::Graphics::Prima::Scaling|PDL::Graphics::Prima::Scaling/>
 
 Specifies different kinds of scaling, including linear and logarithmic
 
-=item L<PDL::Graphics::Prima::Simple>
+=item L<PDL::Graphics::Prima::Simple|PDL::Graphics::Prima::Simple/>
 
 Defines a number of useful functions for generating simple and not-so-simple
 plots
@@ -3031,10 +2763,10 @@ plots
 Portions of this module's code are copyright (c) 2011 The Board of Trustees at
 the University of Illinois.
 
-Portions of this module's code are copyright (c) 2011-2012 Northwestern
+Portions of this module's code are copyright (c) 2011-2013 Northwestern
 University.
 
-This module's documentation are copyright (c) 2011-2012 David Mertens.
+This module's documentation are copyright (c) 2011-2013 David Mertens.
 
 All rights reserved.
 

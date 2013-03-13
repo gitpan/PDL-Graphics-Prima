@@ -1,29 +1,43 @@
 use strict;
 use warnings;
 
-# Defines the lm (limits) package:
-package lm;
+# Defines the lm (limits) package in a way that CPAN won't index it
+package
+lm;
+
+use Carp;
+#our @CARP_NOT = qw(PDL::Graphics::Prima::Axis PDL::Graphics::Prima);
+
 my $inf;
 BEGIN {
 	use PDL::Lite;
 	$inf = -PDL->pdl(0)->log->at(0);
 }
 
+# The fact that lm::Auto is infinite is exploited in pset::Histogram, so if
+# you change the representation here, be sure to change the representation
+# there, too.
 use constant Auto => $inf;
-use constant Hold => -$inf;
+use constant HoldNoWarn => -$inf;
+sub Hold () {
+	warn("Deprecation notice: unless you speak up, lm::Hold is going to be removed");
+	return -$inf;
+}
 
 1;
 
+__END__
+
 =head1 NAME
 
-PDL::Graphics::Prima::Limits - defining a couple of useful constants
+PDL::Graphics::Prima::Limits - defining a few useful constants for setting axis limits
 
 =head1 DESCRIPTION
 
 You probably won't ever need to use this module explicitly, but you will likely
 use the constants defined here to manipulate axis autoscaling. This module defines
-the constants C<lm::Auto> and C<lm::Hold>. If the explanation below does not
-make sense, these constants are also discussed in
+the constants C<lm::Auto> and C<lm::Hold>. If the explanation below
+does not make sense, these constants are also discussed in
 L<PDL::Graphics::Prima::Axis>, L<PDL::Graphics::Prima::Simple>, and elsewhere.
 
 =over
@@ -40,6 +54,16 @@ autoscaling:
  $plot->x->min(lm::Auto);
 
 =item lm::Hold
+
+DEPRECATION CANDIDATE. I am considering deprecating this limit in favor of
+a new limit, discussed below. If you use C<lm::Hold>, please let me know so
+that I can take your concerns into consideration. It presently serves as a
+fairly simple shorthand that I have not actually used in any of my real
+code. It is easy to create the desired effect with simple code, and I have
+concocted a much more helpful meaning for this value, detailed under the
+next item, C<lm::NextTick>.
+
+=over
 
 This constant gives a shorthand for changing from autoscaling to non-autoscaling.
 For example, suppose you are building a plot from multiple data sets and want
@@ -64,9 +88,46 @@ which is equivalent to:
 
  $plot->y->min($plot->y->min);
 
-Also note that the return value of C<< $plot->y->min >> returns different things
+Also note that the return value of C<$plot-E<gt>y->min> returns different things
 depending on whether you are using scalar or list context. (Yes, that's an Axis
 thing, not a Limits thing, but it bears repeating here anyway.)
+
+=back
+
+=item lm::NextTick
+
+PROPOSAL CANDIDATE. I am considering adding this functionality some time in
+mid to late 2013. It would use the same bit representation as what is
+currently C<lm::Hold>, so this would be a backwards incompatible change.
+However, I am not aware of any code that actually uses C<lm::Hold> apart
+from a few of my own example scripts (I don't use it in any of my production
+code), so I suspect it will be fine. (Or, perhaps I should actually make
+turning autoscaling on or off a separate axis method. Ah well, ideas, ideas.
+Feedback welcome.)
+
+=over
+
+The proposed behavior of C<lm::NextTick> is similar to that of C<lm::Auto>
+in that the axis limits would be computed automatically from the data. The
+major difference is that C<lm::NextTick> is that, having computed the "tight"
+automatic min and/or max, the algorithm would actually set the min and/or
+max to a value slightly lower and/or higher, corresponding to the value that
+the Tick calculator would pick for the next major tick value. The goal here
+would be better static figures without having to tweak the limits.
+
+For example, when I create a default diamond plot in a containing window of
+400x400 pixels with inputs C<$x = pdl(1.1, 18.2)> and C<$y = pdl(10, 20)>,
+the actual axis extrema are slightly wider thant the data's min and max and
+come to 0.84 and 18.5, in order to accomodate the width of the diamonds. I
+see three tick marks at 5, 10, and 15. When C<lm::NextTick> gets implemented,
+the extrema for that specification would be 0 and 20, showing tick marks at
+0, 5, 10, 15, and 20.
+
+That, at least, is the proposed specification. I imagine this would get a
+lot more use than C<lm::Hold>, especially since it's not even possible at
+the moment.
+
+=back
 
 =back
 
@@ -74,52 +135,46 @@ thing, not a Limits thing, but it bears repeating here anyway.)
 
 David Mertens (dcmertens.perl@gmail.com)
 
-=head1 SEE ALSO
+=head1 ADDITIONAL MODULES
 
-This is a component of L<PDL::Graphics::Prima>. This library is composed of many
-modules, including:
+Here is the full list of modules in this distribution:
 
 =over
 
-=item L<PDL::Graphics::Prima>
+=item L<PDL::Graphics::Prima|PDL::Graphics::Prima/>
 
 Defines the Plot widget for use in Prima applications
 
-=item L<PDL::Graphics::Prima::Axis>
+=item L<PDL::Graphics::Prima::Axis|PDL::Graphics::Prima::Axis/>
 
 Specifies the behavior of axes (but not the scaling)
 
-=item L<PDL::Graphics::Prima::DataSet>
+=item L<PDL::Graphics::Prima::DataSet|PDL::Graphics::Prima::DataSet/>
 
 Specifies the behavior of DataSets
 
-=item L<PDL::Graphics::Prima::Internals>
-
-A dumping ground for my partial documentation of some of the more complicated
-stuff. It's not organized, so you probably shouldn't read it.
-
-=item L<PDL::Graphics::Prima::Limits>
+=item L<PDL::Graphics::Prima::Limits|PDL::Graphics::Prima::Limits/>
 
 Defines the lm:: namespace
 
-=item L<PDL::Graphics::Prima::Palette>
+=item L<PDL::Graphics::Prima::Palette|PDL::Graphics::Prima::Palette/>
 
 Specifies a collection of different color palettes
 
-=item L<PDL::Graphics::Prima::PlotType>
+=item L<PDL::Graphics::Prima::PlotType|PDL::Graphics::Prima::PlotType/>
 
 Defines the different ways to visualize your data
 
-=item L<PDL::Graphics::Prima::ReadLine>
+=item L<PDL::Graphics::Prima::ReadLine|PDL::Graphics::Prima::ReadLine/>
 
 Encapsulates all interaction with the L<Term::ReadLine> family of
 modules.
 
-=item L<PDL::Graphics::Prima::Scaling>
+=item L<PDL::Graphics::Prima::Scaling|PDL::Graphics::Prima::Scaling/>
 
 Specifies different kinds of scaling, including linear and logarithmic
 
-=item L<PDL::Graphics::Prima::Simple>
+=item L<PDL::Graphics::Prima::Simple|PDL::Graphics::Prima::Simple/>
 
 Defines a number of useful functions for generating simple and not-so-simple
 plots
@@ -131,7 +186,10 @@ plots
 Portions of this module's code are copyright (c) 2011 The Board of Trustees at
 the University of Illinois.
 
-This module's documentation are copyright (c) 2011-2012 David Mertens.
+Portions of this module's code are copyright (c) 2011-2013 Northwestern
+University.
+
+This module's documentation are copyright (c) 2011-2013 David Mertens.
 
 All rights reserved.
 
