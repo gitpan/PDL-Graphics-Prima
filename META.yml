@@ -15,13 +15,13 @@ name: PDL-Graphics-Prima
 provides:
   PDL::Graphics::Prima:
     file: lib/PDL/Graphics/Prima.pm
-    version: '0.15'
+    version: '0.16'
   PDL::Graphics::Prima::Axis:
     file: lib/PDL/Graphics/Prima/Axis.pm
-    version: '0.15'
+    version: '0.16'
   PDL::Graphics::Prima::DataSet:
     file: lib/PDL/Graphics/Prima/DataSet.pm
-    version: '0.15'
+    version: '0.16'
   PDL::Graphics::Prima::DataSet::Annotation:
     file: lib/PDL/Graphics/Prima/DataSet.pm
   PDL::Graphics::Prima::DataSet::Collection:
@@ -38,15 +38,15 @@ provides:
     file: lib/PDL/Graphics/Prima/DataSet.pm
   PDL::Graphics::Prima::Limits:
     file: lib/PDL/Graphics/Prima/Limits.pm
-    version: '0.15'
+    version: '0.16'
   PDL::Graphics::Prima::Palette:
     file: lib/PDL/Graphics/Prima/Palette.pm
-    version: '0.15'
+    version: '0.16'
   PDL::Graphics::Prima::Palette::HSVrange:
     file: lib/PDL/Graphics/Prima/Palette.pm
   PDL::Graphics::Prima::PlotType:
     file: lib/PDL/Graphics/Prima/PlotType.pm
-    version: '0.15'
+    version: '0.16'
   PDL::Graphics::Prima::PlotType::Annotation:
     file: lib/PDL/Graphics/Prima/PlotType.pm
   PDL::Graphics::Prima::PlotType::Annotation::Box:
@@ -93,17 +93,17 @@ provides:
     file: lib/PDL/Graphics/Prima/PlotType.pm
   PDL::Graphics::Prima::ReadLine:
     file: lib/PDL/Graphics/Prima/ReadLine.pm
-    version: '0.15'
+    version: '0.16'
   PDL::Graphics::Prima::Scaling:
     file: lib/PDL/Graphics/Prima/Scaling.pm
-    version: '0.15'
+    version: '0.16'
   PDL::Graphics::Prima::Scaling::Linear:
     file: lib/PDL/Graphics/Prima/Scaling.pm
   PDL::Graphics::Prima::Scaling::Log:
     file: lib/PDL/Graphics/Prima/Scaling.pm
   PDL::Graphics::Prima::Simple:
     file: lib/PDL/Graphics/Prima/Simple.pm
-    version: '0.15'
+    version: '0.16'
   Prima::Plot:
     file: lib/PDL/Graphics/Prima.pm
 requires:
@@ -115,4 +115,4 @@ resources:
   bugtracker: http://github.com/run4flat/PDL-Graphics-Prima/issues
   license: http://dev.perl.org/licenses/
   repository: http://github.com/run4flat/PDL-Graphics-Prima
-version: '0.15'
+version: '0.16'
