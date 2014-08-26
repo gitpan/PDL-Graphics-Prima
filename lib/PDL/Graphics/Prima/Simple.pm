@@ -85,6 +85,12 @@ PDL::Graphics::Prima
  # the letter 'q' when viewing a plot, you can
  # re-invoke interaction with:
  twiddle;
+ 
+ # query auto-twiddling
+ my $is_auto_twiddline = auto_twiddle;
+ # Turn auto-twiddling on or off
+ auto_twiddle(1);
+ auto_twiddle(0);
 
 =head1 DESCRIPTION
 
@@ -545,12 +551,28 @@ write Prima applications, with the Plot widget as just one component for
 user interaction. If you need any substantial amount of user interaction or
 real-time behavior, I suggest you work with the full Prima toolkit.
 
-Although you can plot multiple L<DataSet|PDL::Graphics::Prima::DataSet/> in the
-same plot window, a limitation of this Simple interface is that you cannot create multiple
+You may find yourself working on a script and wanting to create multiple plot
+windows at once, without blocking until all of them are ready. You do this by
+explicitly turning off autotwiddling. Specifically, you would write something
+like this:
+
+ my $was_auto_twiddling = auto_twiddle;
+ auto_twiddle(0);
+ 
+ # ... plotting operations ...
+ 
+ # All done; restore previous autotwiddling
+ # state and let the use interact:
+ auto_twiddle($was_auto_twiddling);
+ twiddle();
+
+Although you can plot multiple L<DataSet|PDL::Graphics::Prima::DataSet/>s in the
+same plot window, and you can simultaneously build multiple plot windows, a
+limitation of this Simple interface is that you cannot create multiple
 independent plots in the same window. This is achieved using the full GUI
-toolkit by creating two plot widgets packed into a larger container widget.
-A tutorial for this sort of thing is in the works but hasn't made it into
-the distribution yet. Stay tuned!
+toolkit by creating two plot widgets packed into a larger container widget. A
+tutorial for this sort of thing is in the works but hasn't made it into the
+distribution yet. Stay tuned!
 
 Having covered that introductory material, let's cover things a little more
 systematically.
@@ -1764,6 +1786,8 @@ sub default_plot {
 		my (undef, $key) = @_;
 		$is_twiddling = 0 if chr($key) =~ /q/i;
 	});
+	# make sure it shows up on top.
+	$window->bring_to_front;
 	
 	# Twiddle, then return. Note that twiddling (defined below) may be a
 	# no-op for configurations where the application loop is already running.
@@ -1778,12 +1802,17 @@ sub auto_twiddle {
 
 # Make twiddling a no-op if we're in the perldl shell and have event_loop
 # support:
+use Scalar::Util qw(refaddr);
 if (PDL::Graphics::Prima::ReadLine->is_setup) {
 	*twiddle = sub {};
 }
 # Otherwise, make it run the event loop:
 else {
 	*twiddle = sub {
+		# twiddling should be a no-op if the plot function is not default_plot,
+		# which is the case for App::Prima::REPL
+		return if refaddr(\&plot) != refaddr(\&default_plot);
+		
 		# No event looping if we don't have any open windows. Otherwise,
 		# they won't be able to exit the loop!
 		print "No open plots\n" and return if $N_windows == 0;
@@ -1987,15 +2016,19 @@ plots
 
 =head1 LICENSE AND COPYRIGHT
 
-Portions of this module's code are copyright (c) 2011 The Board of Trustees at
-the University of Illinois.
+Unless otherwise stated, all contributions in code and documentation are
+copyright (c) their respective authors, all rights reserved.
+
+Portions of this module's code are copyright (c) 2011 The Board of
+Trustees at the University of Illinois.
 
 Portions of this module's code are copyright (c) 2011-2013 Northwestern
 University.
 
-This module's documentation are copyright (c) 2011-2013 David Mertens.
+Portions of this module's code are copyright (c) 2013-2014 Dickinson
+College.
 
-All rights reserved.
+This module's documentation is copyright (c) 2011-2014 David Mertens.
 
 This module is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.

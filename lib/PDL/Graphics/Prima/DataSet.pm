@@ -639,10 +639,17 @@ In this case, normalization means that the "integral" of the histogram is
 sub bin_by_data {
 	my ($data, $bounds, $min, $max, $drop_extremes) = @_;
 	
-	my $is_within_bounds = ($min <= $data) & ($data <= $max);
+	# Find the bin indices to increment. If the bad value flag is set, vsearch
+	# gives us an annoying warning; however, the bad value itself is very likely
+	# to be outside the min and max, so we will temporarily turn it off for the
+	# vsearch and restore it when we're done.
+	my $orig_bad_flag = $data->badflag;
+	$data->badflag(0);
 	my $idx = vsearch($data, $bounds);
+	$data->badflag($orig_bad_flag);
 	
 	# Safety guard so indadd doesn't choke
+	my $is_within_bounds = ($min <= $data) & ($data <= $max);
 	$idx->where(!$is_within_bounds) .= 1;
 	# The actual minimum value will have idx 0, all others will be offest
 	# by 1, so adjust:
@@ -701,7 +708,8 @@ sub Linear {
 		my $hist = bin_by_data($data => $bounds, $min, $max, $opts{drop_extremes});
 		
 		# Mark empties as bad, if requested
-		$hist = $hist->setvaltobad(0) if $opts{mark_empty_as} eq 'bad';
+		$hist = $hist->setvaltobad(0)
+			if $opts{mark_empty_as} eq 'bad' and any $hist == 0;
 		
 		if ($opts{normalize}) {
 			# Normalize by count
@@ -1285,7 +1293,7 @@ sub compute_edges {
 		$results(-1) .= $data(-1) + $spacing / 2;
 	}
 	elsif ($type eq 'log') {
-		$results(0:-2) = $data / sqrt($spacing);
+		$results(0:-2) .= $data / sqrt($spacing);
 		$results(-1) .= $data(-1) * sqrt($spacing);
 	}
 	else {
@@ -2015,15 +2023,19 @@ plots
 
 =head1 LICENSE AND COPYRIGHT
 
-Portions of this module's code are copyright (c) 2011 The Board of Trustees at
-the University of Illinois.
+Unless otherwise stated, all contributions in code and documentation are
+copyright (c) their respective authors, all rights reserved.
+
+Portions of this module's code are copyright (c) 2011 The Board of
+Trustees at the University of Illinois.
 
 Portions of this module's code are copyright (c) 2011-2013 Northwestern
 University.
 
-This module's documentation are copyright (c) 2011-2013 David Mertens.
+Portions of this module's code are copyright (c) 2013-2014 Dickinson
+College.
 
-All rights reserved.
+This module's documentation is copyright (c) 2011-2014 David Mertens.
 
 This module is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.

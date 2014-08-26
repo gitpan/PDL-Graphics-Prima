@@ -105,7 +105,7 @@ returns a piddle of Prima color values given a piddle of scalar values.
 # A basic palette knows how to apply itself to a set of data. The basic
 # palette invokes the subroutine reference supplied in the apply key:
 sub apply {
-	my ($self, $data) = shift;
+	my ($self, $data) = @_;
 	return $self->{apply}->($data);
 }
 
@@ -220,12 +220,29 @@ in the C<pal> namespace.
 
 =item pal::Rainbow
 
-Runs from red->orange->yellow->green->blue->purple->red in ascending order.
+Runs from red->orange->yellow->green->blue->purple in ascending order.
 
 =cut
 
 sub pal::Rainbow {
-	return PDL::Graphics::Prima::Palette::HSVrange->new;
+	return pal::RainbowSV(1, 1);
+}
+
+=item pal::RainbowSV
+
+Runs from red->orange->yellow->green->blue->purple in ascending order. The two
+arguments it accepts are the saturation and value, which it holds uniformly.
+This makes it much easier to create palettes that can be easily seen against a
+white background. For example, the yellow from this palette is much eaiser to
+see against a white background than the yellow from pal::Rainbow:
+
+ pal::RainbowSV(1, 0.8)
+
+=cut
+
+sub pal::RainbowSV {
+	croak("You must supply a saturation and a value") unless @_ == 2;
+	return pal::HSVrange([0, @_] => [300, @_]);
 }
 
 =item pal::BlackToWhite
@@ -330,7 +347,7 @@ and final hue, saturation and value.
 For example, this creates a palette that runs from red (H=360) to blue
 (H=240):
 
- my $blue_to_red = pal::HSVrange([1, 1, 360] => [1, 1, 240]);
+ my $blue_to_red = pal::HSVrange([360, 1, 1] => [240, 1, 1]);
 
 If you know the L<Prima name of your color|Prima::Const/cl>, you can use the
 conversion functions provided by
@@ -483,15 +500,19 @@ plots
 
 =head1 LICENSE AND COPYRIGHT
 
-Portions of this module's code are copyright (c) 2011 The Board of Trustees at
-the University of Illinois.
+Unless otherwise stated, all contributions in code and documentation are
+copyright (c) their respective authors, all rights reserved.
+
+Portions of this module's code are copyright (c) 2011 The Board of
+Trustees at the University of Illinois.
 
 Portions of this module's code are copyright (c) 2011-2013 Northwestern
 University.
 
-This module's documentation are copyright (c) 2011-2013 David Mertens.
+Portions of this module's code are copyright (c) 2013-2014 Dickinson
+College.
 
-All rights reserved.
+This module's documentation is copyright (c) 2011-2014 David Mertens.
 
 This module is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.

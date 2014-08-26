@@ -1,7 +1,6 @@
 use strict;
 use warnings;
 use PDL;
-use Prima qw(Application noX11);
 use PDL::Graphics::Prima;
 use PDL::NiceSlice;
 
@@ -19,20 +18,10 @@ my $plot = Prima::Plot->create(
 			ppair::Blobs(radius => 4),
 		]
 	),
-	pack => { fill => 'both', expand => 1},
-	x => {
-		label => 'x data',
-	},
-	y => {
-		label => 'y data',
-	},
+	x => 'x data',
+	y => 'y data',
 	title => 'test',
-	width => 300,
-	height => 200,
+	size => [640, 480],
 );
 
 $plot->save_to_postscript('test.ps');
-# Cool. Now load it using PDL
-use PDL::IO::Pic;
-my $image = rim('test.ps');
-wim($image => 'test2.png');

@@ -133,7 +133,7 @@ However, threading like points has one major drawback, which is that it does
 not properly handle line styles. For example, if you wanted a dashed curve,
 you would specify
 
- ppair::Lines(..., lineStyles => lp::Dash)
+ ppair::Lines(..., linePattern => lp::Dash)
 
 When you thread like points, each line segment is treated as a seperate line.
 That mis-applies your dashing style. For large datasets (more than a million
@@ -936,7 +936,9 @@ sub ppair::Crosses {
 
 Draws a histogram. The bin-centers that are approximated from the x-values
 and the bin heights are set as the data's y-values. Both positive and
-negative y-values are allowed.
+negative y-values are allowed. The border of the histogram bars are drawn
+using the applicable C<color> and the histograms are filled with the
+applicable C<backColor>.
 
 Histogram computes the inter-point bin edges as the mid-point between each
 (sequential) pair of x-values. For the first and last bins, the outer edge
@@ -1136,9 +1138,6 @@ sub draw {
 	my $dataset = $self->dataset;
 	my $widget = $self->widget;
 	
-	# Assemble the various properties from the plot-type object and the dataset
-	my %properties = $self->generate_properties(@PDL::Drawing::Prima::rectangles_props);
-	
 	# Get the edges and skip out if we have an empty case
 	my $edges = $self->get_bin_edges($dataset, $widget);
 	return unless defined $edges;
@@ -1148,6 +1147,22 @@ sub draw {
 	my $pixel_bottom = $widget->y->reals_to_pixels($self->{baseline}, $ratio);
 	my $ys = $widget->y->reals_to_pixels($dataset->get_ys, $ratio);
 	
+	# For drawing the filled background, we need to temporarily isolate the
+	# backGround color from the regular color.
+	my %properties = $self->generate_properties(@PDL::Drawing::Prima::bars_props);
+	delete $properties{color};
+	delete $properties{colors};
+	$properties{color} = $properties{backColor} if exists $properties{backColor};
+	$properties{colors} = $properties{backColors} if exists $properties{backColors};
+	# If we have a backColor, set our foreground color; otherwise skip
+	if (exists $properties{color} or exists $properties{colors}) {
+		$canvas->pdl_bars($pixel_edges(0:-2), $pixel_bottom
+			, $pixel_edges(1:-1), $ys, %properties);
+	}
+	
+	# Assemble the various properties from the plot-type object and the
+	# dataset, and plot the rectangles.
+	%properties = $self->generate_properties(@PDL::Drawing::Prima::rectangles_props);
 	$canvas->pdl_rectangles($pixel_edges(0:-2), $pixel_bottom
 			, $pixel_edges(1:-1), $ys, %properties);
 }
@@ -1730,17 +1745,16 @@ use Carp;
 
 This method standardizes and typo-checks position specifications. The
 specification can be either a string or an anonymous hash; the return value
-is an anonymous hash. If you pass in a bad spec, the method croaks. You call
-it like any other method:
+is an anonymous hash. If you pass in a malformed spec, the method croaks. You
+call it like any other method:
 
  $hash = $note_obj->parse_position($spec);
 
-A position
-specification is a powerful and flexible means for specifying a location on
-a plot widget as a combination of data values, pixel offsets, multiples of
-the current width of the letter C<M>, and a percentage of the current plot
-portion of the widget. I think best in terms of examples, so here are a
-couple that hopefully illustrate how this works.
+A position specification is a powerful and flexible means for specifying a
+location on a plot widget as a combination of data values, pixel offsets,
+multiples of the current width of the letter C<M>, and a percentage of the
+current plot portion of the widget. I think best in terms of examples, so here
+are a couple that hopefully illustrate how this works.
 
 If passed as a y-specification, i.e. top or bottom specification, this will
 pick a location that is one M-width below the upper axis. If passed as an
@@ -1790,12 +1804,19 @@ reason, C<parse_position> assumes that if you specified your position by
 hand with a hash rather than with a specification string, you know what
 you are doing.
 
+One final note: if the specification string includes weird or bad values, it
+returns a hash with the "bad" key set to true, i.e. C<{bad => 1}>, and nothing
+else. This is interpreted by C<compute_position> as a bad value. Strings that
+will trip bad value handling include "bad", "nan", and "inf". Presently, a
+warning is issued every time such a value is encountered; the issuance of the
+warning may become a configurable option some day.
+
 To translate the resulting hash into a pixel position on the plot widget,
 use C<compute_position>.
 
 =cut
 
-my %allowed_entries = map {$_ => 1} qw(em pct px raw);
+my %allowed_entries = map {$_ => 1} qw(em pct px raw bad);
 my $float_point_regex = qr/[-+]?([0-9]*\.?[0-9]+|[0-9]+\.[0-9]*)([eE][-+]?[0-9]+)?/;
 sub parse_position {
 	my ($self, $spec) = @_;
@@ -1814,6 +1835,13 @@ sub parse_position {
 		$spec = lc $spec;
 		
 		my %hash;
+		
+		# Handle special/annoying values. Warnings for this need to be more
+		# configurable.
+		if ($spec =~ m/[+-]?(bad|nan|inf)/) {
+			warn "Found $1 in position spec; ignoring position\n";
+			return { bad => 1 };
+		}
 		
 		# Pull out the different parts, one at a time
 		if ($spec =~ s/($float_point_regex)em//) {
@@ -1867,6 +1895,9 @@ Prima's drawing operations. If any of the values in the position hash are
 piddles, the result will be a piddle of positions that can be sent to the
 drawing operations provided by L<PDL::Drawing::Prima>.
 
+This value has special handling for bad values. If the bad key is set in the
+position hash, a piddle with a lone bad value is returned.
+
 This method expects a position hash of the form built (or verified) by
 C<parse_position>.
 
@@ -1874,6 +1905,9 @@ C<parse_position>.
 
 sub compute_position {
 	my ($self, $position_hash, $axis, $ratio) = @_;
+	
+	# Special-case weird value handling
+	return pdl(1)->setvaltobad(1) if $position_hash->{bad};
 	
 	# Start with the raw data, or undef
 	my $rel_position;
@@ -2199,6 +2233,12 @@ sub compute_collated_min_max_for {
 sub draw {
 	my ($self, $canvas, $ratio) = @_;
 	
+	# Parse the position and back out if it's bad
+	my $x = $self->compute_position($self->{x}, $self->widget->x, $ratio);
+	my $y = $self->compute_position($self->{y}, $self->widget->y, $ratio);
+	return if PDL::Core::topdl($x)->isbad->all
+		or PDL::Core::topdl($x)->isbad->all;
+	
 	# Back up the clip rectangle
 	my @clip_rect = $canvas->clipRect;
 	
@@ -2213,9 +2253,6 @@ sub draw {
 	elsif (lc $clipRect ne 'normal') {
 		croak('Text Annotation clipRect must be "normal", "canvas", or a four-element array');
 	}
-	
-	my $x = $self->compute_position($self->{x}, $self->widget->x, $ratio);
-	my $y = $self->compute_position($self->{y}, $self->widget->y, $ratio);
 	
 	# Set the properties for the text drawing operation and back up the old
 	# properties
@@ -2760,15 +2797,19 @@ plots
 
 =head1 LICENSE AND COPYRIGHT
 
-Portions of this module's code are copyright (c) 2011 The Board of Trustees at
-the University of Illinois.
+Unless otherwise stated, all contributions in code and documentation are
+copyright (c) their respective authors, all rights reserved.
+
+Portions of this module's code are copyright (c) 2011 The Board of
+Trustees at the University of Illinois.
 
 Portions of this module's code are copyright (c) 2011-2013 Northwestern
 University.
 
-This module's documentation are copyright (c) 2011-2013 David Mertens.
+Portions of this module's code are copyright (c) 2013-2014 Dickinson
+College.
 
-All rights reserved.
+This module's documentation is copyright (c) 2011-2014 David Mertens.
 
 This module is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.

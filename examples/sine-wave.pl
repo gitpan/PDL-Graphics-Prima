@@ -14,6 +14,9 @@ plot(
 	},
 );
 
+#my $to_tick = 'a' x 5;
+my $to_tick = 0;
+use Time::Piece;
 plot(
 	-data => ds::Pair($x, cos $x),
 	title => 'Cosine Wave',

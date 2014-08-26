@@ -4,7 +4,7 @@ use warnings;
 ############################################################################
                        package PDL::Graphics::Prima;
 ############################################################################
-our $VERSION = 0.13;
+our $VERSION = 0.14;
 
 # Add automatic support for PDL terminal interactivity
 use PDL::Graphics::Prima::ReadLine;
@@ -21,11 +21,8 @@ sub import {
 ############################################################################
 
 # Prima
-use Prima;
-use Prima::ImageDialog;
-use Prima::MsgBox;
-use Prima::Utils;
-
+use Prima qw(noX11 Application ImageDialog MsgBox Utils Buttons InputLine
+			Label);
 use base 'Prima::Widget';
 
 # Error reporting
@@ -43,49 +40,77 @@ use PDL::Graphics::Prima::DataSet;
 # Next: use block-comments to describe the purpose of each method.
 
 ######################################
-# Name       : 
-# Arguments  : 
-# Invocation : 
-# Purpose    : 
-# Returns    : 
-# Throws     : 
-# Comments   : 
+# Usage        : ????
+# Purpose      : ????
+# Arguments    : ????
+# Returns      : ????
+# Side Effects : none
+# Throws       : no exceptions
+# Comments     : none
+# See Also     : n/a
 
 ######################################
-# Name       : profile_default
-# Arguments  : I'm not entirely sure, but it's either the class 
-# Invocation : 
-# Purpose    : Sets up a default profile for a graph widget
-# Returns    : 
-# Throws     : never
-# Comments   : 
+# Usage        : Not used directly; this is invoked by Prima's inherited
+#              : constructor.
+# Purpose      : Sets up a default profile for a graph widget
+# Arguments    : The (completely uninitialized) object
+# Returns      : a hashref
+# Side Effects : none
+# Throws       : never
+# Comments     : none
+# See Also     : init
+
 sub profile_default {
 	my %def = %{$_[ 0]-> SUPER::profile_default};
 
 	return {
 		%def,
-		# default properties go here
+		# default properties follow
+		
+		# Title basics
 		title => '',
-		titleSpace => 80,
+		titleSpace => '1line',
+		titleFont => { height => '10%height' },
+		
 		backColor => cl::White,
+		
 		# replot duration in milliseconds
 		replotDuration => 30,
 		# Blank profiles for the axes:
 		x => {},
 		y => {},
+		
+		# Other important and basic settings
 		selectable => 1,
 		buffered => 1,
 	};
 }
 
-# This initializes self's data from the profile:
+######################################
+# Usage        : Not used directly; this is invoked by Prima's inherited
+#              : constructor.
+# Purpose      : Initializes self's data from the profile.
+# Arguments    : $self, as yet uninitialized
+#              : a list of key => value pairs corresponding to the list of
+#              : arguments provided to the constructor, merged with the default
+#              : profile.
+# Returns      : A list of key => value pairs suitable for a profile hash.
+# Side Effects : none
+# Throws       : if unable to initialize the x/y axes from their associated
+#              : constructor hashrefs
+# Comments     : This has a lot of logic for setting defaults. It might not be
+#              : a bad idea to refactor some of this out, so that a Plot widget
+#              : can be reset to a default state.
+# See Also     : profile_default
+
 sub init {
 	my $self = shift;
 	my %profile = $self->SUPER::init(@_);
 	
-	# Set the labels and title:
-	$self->{title} = $profile{title};
-	$self->{titleSpace} = $profile{titleSpace};
+	# Set the title properties
+	$self->_title($profile{title});
+	$self->_titleSpace($profile{titleSpace});
+	$self->_titleFont(%{$profile{titleFont}});
 	
 	# Create the x- and y-axis objects, overriding the owner and axis name
 	# properties if they are set in the profile.
@@ -102,6 +127,14 @@ sub init {
 				, name => $_
 			);
 		}
+		elsif (not ref($profile{$_})) {
+			# No ref means scalar; assume it's a label name
+			$self->{$_} = PDL::Graphics::Prima::Axis->create(
+				label => $profile{$_}
+				, owner => $self
+				, name => $_
+			);
+		}
 		else {
 			croak("Unable to create $_-axis from $profile{$_}");
 		}
@@ -114,8 +147,6 @@ sub init {
 			$self->repaint;
 		}
 	);
-	
-	$self->{log} = 'test';
 	
 	# Create an empty dataset array and tie it to the DataSetHash class:
 	my %datasets;
@@ -138,6 +169,13 @@ sub init {
 	# Turn the axis autoscaling back on:
 	$self->{x}->{initializing} = 0;
 	$self->{y}->{initializing} = 0;
+	
+	return %profile;
+}
+
+sub on_destroy {
+	my $self = shift;
+	$self->{prop_window}->destroy if exists $self->{prop_window};
 }
 
 # This is key: *this* is what triggers autoscaling for the first time
@@ -162,7 +200,7 @@ sub compute_min_max_for {
 	
 	# Special handling for x-axis stuff:
 	my (undef, $y_max_is_auto) = $self->y->max;
-	if ($axis_name eq 'x' and $y_max_is_auto) {
+	if ($axis_name =~ /x/ and $y_max_is_auto) {
 		# First perform all of this on y so that the edge requirements are
 		# correctly computed for x-calculations later.
 		
@@ -354,14 +392,27 @@ sub get_edge_requirements {
 		$i %= 4;
 	}
 	
-	$requirement[3] += $self->{titleSpace}
+	$requirement[3] += $self->titleSpace
 		if defined $self->{title} and $self->{title} ne '';
 	
 	return @requirement;
 }
 
-#############################################
-# Name   : 
+######################################
+# Usage        : my $title_string = $plot->title; # get
+#              : $plot->title('new title');       # set
+#              : $plot->title(undef);             # clear
+#              : $plot->title('');                # clear
+# Purpose      : Gets, sets, or clears the plot's title.
+# Arguments    : $self
+#              : an optional title string, or an optional undef
+# Returns      : In get mode, the title; in set mode, the newly set title.
+# Side Effects : Issues a ChangeTitle notification, which will cause the
+#              : y-extent of the graph to change when the title goes from unset
+#              : to set, or set to unset.
+# Throws       : never
+# Comments     : None
+# See Also     : titleSpace, on_changetitle, draw_plot, ChangeTitle
 
 sub _title {
 	$_[0]->{title} = $_[1];
@@ -371,21 +422,163 @@ sub title {
 	return $_[0]->{title} unless $#_;
 	$_[0]->_title($_[1]);
 	$_[0]->notify('ChangeTitle');
+	return $_[0]->{title};
 }
 
+sub _titleFont {
+	my $self = shift;
+	
+	# Return a copy of the current font hash if this is a getter
+	return %{$self->{titleFont}} if @_ == 0;
+	
+	# Otherwise store the provided font hash, overwriting the previous one
+	$self->{titleFont} = { @_ };
+}
+
+sub titleFont {
+	$_[0]->notify('ChangeTitle') if @_ > 1;
+	goto \&_titleFont;
+}
+
+# Assumes that begin_paint or begin_paint_info have already been called.
+sub _set_title_font {
+	my ($self, $canvas) = (shift, shift);
+	
+	# Get a copy of the title font hash and process any relative sizes
+	my %title_font_hash = $self->_titleFont;
+	SETTING: for my $setting ( qw(height width size) ) {
+		next SETTING unless exists $title_font_hash{$setting};
+		if ($title_font_hash{$setting} =~ /(.*)\%width/) {
+			$title_font_hash{$setting} = $canvas->width * $1 / 100;
+		}
+		elsif ($title_font_hash{$setting} =~ /(.*)\%height/) {
+			$title_font_hash{$setting} = $canvas->height * $1 / 100;
+		}
+		elsif ($title_font_hash{$setting} =~ /(.*)x/) {
+			$title_font_hash{$setting} = $canvas->font->{$setting} * $1;
+		}
+	}
+	
+	# Set it
+	$canvas->font(%title_font_hash);
+}
+
+sub _title_font_height {
+	my ($self, $canvas) = (shift, shift);
+	# Set up the paint info state. This will fail if we're already in paint
+	# info state, in which case we will not want to clear it at the end:
+	my $will_clear_paint_info = $canvas->begin_paint_info;
+	
+	# Backup the font, change to the title font, and compute
+	my $font = $canvas->font;
+	$self->_set_title_font($canvas);
+	my $height = $canvas->font->height;
+	
+	# Restore the widget to the previous state
+	$canvas->font($font);
+	$canvas->end_paint_info if $will_clear_paint_info;
+	
+	# All done
+	return $height;
+}
+
+######################################
+# Usage        : my $title_space = $plot->titleSpace; # get
+#              : $plot->titleSpace(40);               # set
+#              : $plot->titleSpace('10% - 5px');      # set
+#              : $plot->title(0);                     # hide
+#              : $plot->title(undef);                 # hide
+# Purpose      : Gets or sets the plot's titleSpace.
+# Arguments    : $self
+#              : an optional title height in pixels
+# Returns      : In get mode, the titleSpace; in set mode, the new height
+# Side Effects : Issues a ChangeTitle notification, which will cause the
+#              : y-extent of the graph to change.
+# Throws       : when the new titleSpace is not a nonnegative integer
+# Comments     : An argument of undef is treated as zero, and stored as such.
+#              : Note that this mechanism is not very powerful at the moment.
+#              : It is likely to be extended to allow for specification in terms
+#              : of canvas height or width, em-width, and other parameters. See
+#              : PDL::Graphics::Prima::PlotType::Annotation's spec_string
+#              : handling to get an idea for what I have in mind.
+# See Also     : title, on_changetitle, draw_plot, ChangeTitle
+
+my %allowed_entries = map {$_ => 1} qw(pixels canvas_pct lines);
+my $float_point_regex = qr/[-+]?([0-9]*\.?[0-9]+|[0-9]+\.[0-9]*)([eE][-+]?[0-9]+)?/;
 sub _titleSpace {
 	my ($self, $new_space) = @_;
-	croak("titleSpace must be a positive integer")
-		unless $new_space =~ /^\d+$/;
+	$new_space = 0 if not defined $new_space;
 	
-	# working here - tie in to sizeMin, sizeMax, and other things
-	$self->{titleSpace} = $new_space;
+	# special-cases for a subref or nonnegative integer: just set it
+	if (ref($new_space) eq ref(sub{})
+		or ref($new_space) eq ref('scalar') and $new_space =~ /^\d+$/
+	) {
+		$self->{titleSpace} = $new_space;
+		return;
+	}
+	# Special case for hashref: check and set if it passes
+	if (ref($new_space) eq 'HASH') {
+		# Make sure the entries are valid
+		for my $key (keys %$new_space) {
+			croak("titleSpace hash has invalid key $key")
+				unless $allowed_entries{$key};
+		}
+		# Good to go; set it
+		$self->{titleSpace} = $new_space;
+		return;
+	}
+	
+	# Otherwise we have a height spec to parse
+	my $spec = {};
+	$new_space =~ s/\s+//g;
+	$new_space = lc $new_space;
+
+	if ($new_space =~ s/($float_point_regex)lines?//) {
+		$spec->{lines} = $1;
+	}
+	if ($new_space =~ s/($float_point_regex)\%//) {
+		$spec->{canvas_pct} = $1 / 100;
+	}
+	if ($new_space =~ s/($float_point_regex)px//) {
+		$spec->{pixels} = $1;
+	}
+	if (length($new_space) > 0) {
+		croak("Unknown fragment in titleSpace specification: $new_space");
+	}
+	
+	# All done parsing.
+	$self->{titleSpace} = $spec;
 }
 
 sub titleSpace {
-	return $_[0]->{titleSpace} unless $#_;
-	$_[0]->_titleSpace($_[1]);
-	$_[0]->notify('ChangeTitle');
+	my $self = shift;
+	
+	# Handle the setter case
+	if (@_) {
+		$self->_titleSpace(@_);
+		$self->notify('ChangeTitle');
+		return $self->titleSpace;
+	}
+	
+	# OK, the rest of this is for the getter code
+	
+	# First the simple one: a plain number
+	return $self->{titleSpace} unless ref($self->{titleSpace});
+	
+	# Next the subref, which requires an invocation:
+	return $self->titleSpace->($self)
+		if ref($self->{titleSpace}) eq ref(sub{});
+	
+	# We can only reach here if we have a hashref, which requires calculation
+	my $spec_hash = $self->{titleSpace};
+	my $titleSpace = 0;
+	$titleSpace += $spec_hash->{pixels} if exists $spec_hash->{pixels};
+	$titleSpace += $spec_hash->{canvas_pct} * $self->height
+		if exists $spec_hash->{canvas_pct};
+	$titleSpace += $self->_title_font_height($self) * $spec_hash->{lines}
+		if exists $spec_hash->{lines};
+	
+	return $titleSpace;
 }
 
 sub dataSets {
@@ -416,16 +609,19 @@ sub get_image {
 	my $image = Prima::Image->create(
 		height => $self->height,
 		width => $self->width,
+		font => $self->font,
 		backColor => $self->backColor,
 	) or die "Can't create an image!\n";
 	$image->begin_paint or die "Can't draw on image";
-	$self->on_paint($image);
+	$image->clear;
+	$self->paint_with_widgets($image);
 	$image->end_paint;
 	return $image;
 }
 
 use Prima::PS::Drawable;
 use Prima::FileDialog;
+use Prima::Drawable::Subcanvas;
 
 sub save_to_postscript {
 	# Get the filename as an argument, or from the save-as dialog.
@@ -433,9 +629,9 @@ sub save_to_postscript {
 	
 	unless ($filename) {
 		my $save_dialog = Prima::SaveDialog-> new(
-			defaultExt => 'ps',
+			defaultExt => 'eps',
 			filter => [
-				['Postscript files' => '*.ps'],
+				['Encapsulated Postscript files' => '*.eps'],
 				['All files' => '*'],
 			],
 		);
@@ -443,34 +639,44 @@ sub save_to_postscript {
 		return unless $save_dialog->execute;
 		# Otherwise get the filename:
 		$filename = $save_dialog->fileName;
+		# Provide a default extension
+		$filename .= '.eps' unless $filename =~ /\.eps$/;
 	}
 	unlink $filename if -f $filename;
 	
+	# Calculate width and height using the (hopefully standard) rule that
+	# 100px = 72pt = 1in. This doesn't quite work right, still. Compare the
+	# output of the pathological-sizing.pl script to the original raster window.
+	my $scaling_ratio = 72.27 / 100;
+	my $width = $self->width * $scaling_ratio;
+	my $height = $self->height * $scaling_ratio;
 	# Create the postscript canvas and plot to it:
 	my $ps = Prima::PS::Drawable-> create( onSpool => sub {
 			open my $fh, ">>", $filename;
 			print $fh $_[1];
 			close $fh;
 		},
-		pageSize => [$self->size],
+		pageSize => [$width, $height],
 		pageMargins => [0, 0, 0, 0],
+		isEPS => 1,
+		useDeviceFontsOnly => 1,
 	);
 	$ps->resolution($self->resolution);
-	$ps->font(size => 16);
+	$ps->font(height => $self->font->height);
 	
 	$ps->begin_doc
 		or do {
 			my $message = "Error generating Postscript output: $@";
 			if (defined $::application) {
 				Prima::MsgBox::message($message, mb::Ok);
-				carp $message;
+				carp($message);
 			}
 			else {
 				croak($message);
 			}
 		};
 	
-	$self->on_paint($ps);
+	$self->paint_with_widgets($ps);
 	$ps->end_doc;
 }
 
@@ -496,7 +702,7 @@ sub save_to_file {
 			my $message = "Error generating figure output: $@";
 			if (defined $::application) {
 				Prima::MsgBox::message($message, mb::Ok);
-				carp $message;
+				carp($message);
 			}
 			else {
 				croak($message);
@@ -524,8 +730,9 @@ sub on_changetitle {
 	$self->x->update_edges;
 	$self->y->update_edges;
 	$self->notify('Paint');
-	# Clear the event queue so this hits immediately in the PDL shell
-	$::application->yield if defined $::application;
+	# If running in the PDL shell, clear the event queue so this hits
+	# immediately
+	$::application->yield if defined $PERLDL::TERM;
 }
 
 # Sets up a timer in self that eventually calls the paint notification:
@@ -558,9 +765,36 @@ sub on_replot {
 sub on_paint {
 	my ($self, $canvas) = @_;
 	
-	# Clear the canvas:
-	$canvas = $self if not defined $canvas;
-	$canvas->clear;
+	# We need to handle the case of this canvas not being this widget.
+	if (defined $canvas and $canvas != $self) {
+		my $setup_paint = ($canvas->get_paint_state != ps::Enabled);
+		$canvas->begin_paint if $setup_paint;
+		$canvas->clear;
+		$self->draw_plot($canvas);
+		$canvas->end_paint if $setup_paint;
+		return;
+	}
+	
+	# If the paint state is not enabled, issue a repaint, which will ultimately
+	# re-invoke this method, but in a paint-enabled state. This achieves the
+	# same purpose as something like this:
+	#   $self->begin_paint;
+	#   $self->on_paint;
+	#   $self->end_paint
+	# but it does not flicker the way that the above code does.
+	return $self->repaint if $self->get_paint_state != 1;
+	
+	# Otherwise, clear the canvas and invoke our plot drawing routine on ourself
+	$self->clear;
+	$self->draw_plot($self);
+}
+
+# This is the actual functionality for drawing on the canvas. This was once part
+# of on_paint, but was pulled out so that it can be overridden by subclasses
+# without having to deal with the vagaries of getting the paint state right.
+# Again, this is *meant* to be overridden. :-)
+sub draw_plot {
+	my ($self, $canvas) = @_;
 	
 	# Get the clipping rectangle for the actual drawing space:
 	my ($clip_left, $clip_bottom, $right_edge, $top_edge)
@@ -601,33 +835,29 @@ sub on_paint {
 	$self->y->draw($canvas, $clip_left, $clip_bottom, $clip_right, $clip_top, $ratio);
 	
 	# Draw the title:
-	if ($self->{titleSpace}) {
+	if (defined $self->{title} and $self->{title} ne '') {
+		my $backup_font = $canvas->font;
 		my ($width, $height) = $canvas->size;
-		# Set up the font characteristics:
-		my $font_height = $canvas->font->height;
-		$canvas->font->height($font_height * 1.5);
-		my $style = $canvas->font->style;
-		$canvas->font->style(fs::Bold);
+		# Compute the titleSpace before changing anything
+		my $titleSpace = $self->titleSpace;
+		# Set up the title font
+		$self->_set_title_font($canvas);
 		
 		# Draw the title:
-		$canvas->draw_text($self->{title}, 0, $height - $self->{titleSpace} * $ratio
+		$canvas->draw_text($self->{title}, 0, $height - $titleSpace * $ratio
 				, $width, $height
 				, dt::Center | dt::VCenter | dt::NewLineBreak | dt::NoWordWrap
 				| dt::UseExternalLeading);
 		
 		# Reset the font characteristics:
-		$canvas->font->height($font_height);
-		$canvas->font->style($style);
+		$canvas->font($backup_font);
 	}
 }
-
-# working here - the InputLine widget uses Prima::MouseScroller from IntUtils
-# to handle things, and it appears to work. Maybe this can give me something
-# that works better cross-platform.
 
 # For mousewheel events, we zoom in or out. However, if they're over the axes,
 # only zoom in or out for that axis.
 sub on_mousewheel {
+	return unless $_[0]->enabled;
 	my ($self, $mods, $x, $y, $dir) = @_;
 	my ($width, $height) = $self->size;
 	
@@ -685,6 +915,7 @@ sub get_min_max_for {
 }
 
 sub on_mousedown {
+	return unless $_[0]->enabled;
 	my ($self, $down_button, undef, $x, $y) = @_;
 	# Store the relative click locations:
 	$x = $self->x->pixels_to_relatives($x);
@@ -696,6 +927,7 @@ sub on_mousedown {
 }
 
 sub on_mousemove {
+	return unless $_[0]->enabled;
 	my ($self, $drag_button, $x_stop_pixel, $y_stop_pixel) = @_;
 	
 	# Compute the relative and real final mouse locations
@@ -742,7 +974,8 @@ sub on_mousemove {
 			my $new_max = $self->x->relatives_to_reals(1 - $dx);
 			
 			# Call the non-notifying version. The notifying version causes an
-			# immediate redraw that causes the plot to accelerate away.
+			# immediate redraw that causes the plot to accelerate away in
+			# perldl.
 			$self->x->_min($new_min);
 			$self->x->_max($new_max);
 		}
@@ -755,7 +988,8 @@ sub on_mousemove {
 			my $new_max = $self->y->relatives_to_reals(1 - $dy);
 			
 			# Call the non-notifying version. The notifying version causes an
-			# immediate redraw that causes the plot to accelerate away.
+			# immediate redraw that causes the plot to accelerate away in
+			# perldl.
 			$self->y->_min($new_min);
 			$self->y->_max($new_max);
 		}
@@ -769,6 +1003,7 @@ sub on_mousemove {
 }
 
 sub on_mouseup {
+	return unless $_[0]->enabled;
 	my ($self, $up_button, $up_mods, $x_stop_pixel, $y_stop_pixel) = @_;
 	
 	# Remove the previous button record for left and middle buttons:
@@ -828,8 +1063,11 @@ sub on_mouseup {
 						)->start;
 					}],
 					['~Autoscale' => sub {
-							$self->x->minmax(lm::Auto, lm::Auto);
-							$self->y->minmax(lm::Auto, lm::Auto);
+						$self->x->minmax(lm::Auto, lm::Auto);
+						$self->y->minmax(lm::Auto, lm::Auto);
+					}],
+					['~Properties' => sub {
+						$self->set_properties_dialog;
 					}],
 				],
 			));
@@ -837,6 +1075,283 @@ sub on_mouseup {
 		# Remove the previous button record, so a zoom rectangle is not drawn:
 		delete $self->{mouse_down_rel}->{mb::Right};
 	}
+}
+
+use Scalar::Util qw(looks_like_number);
+
+sub insert_minmax_input {
+	my ($group_box, $method, $axis, $y_pos) = @_;
+	$group_box->insert(Label =>
+		place => { x => 45, y => $y_pos, height => 25, width => 60, anchor => 'sw' },
+		height => 30,
+		text => ucfirst($method) . ':',
+	);
+	# the widgets we are about to add
+	my ($auto_button, $inline);
+	# lexical state variable to bypass updates if the input line triggered
+	# the update
+	my $update_inline = 1;
+	# initial value and autoscaling state of the axis
+	my ($init_val, $is_auto) = $axis->$method;
+	
+	# Attach an event listener to the axis min/max methods to keep is_auto
+	# up-to-date, and ensure that the input line is accurate
+	my $notification_idx = $axis->add_notification(ChangeBounds => sub {
+		# get the new min or max
+		(my $curr_val, $is_auto) = $axis->$method;
+		
+		$inline->text($curr_val . ($is_auto ? ' (Auto)' : ''))
+			if $update_inline;
+		$auto_button->enabled(!$is_auto);
+	});
+	
+	no PDL::NiceSlice;
+	my $val_is_good = $method eq 'min'	? sub { $_[0] < $axis->max }
+										: sub { $_[0] > $axis->min };
+	$inline = $group_box->insert(InputLine =>
+		place => { x => 110, y => $y_pos, height => 30, width => 280, anchor => 'sw' },
+		height => 30,
+		text => ($is_auto ? "$init_val (Auto)" : $init_val),
+		onEnter => sub {
+			if ($is_auto) {
+				$_[0]->text(scalar($axis->$method));
+			}
+		},
+		onLeave => sub {
+			if ($is_auto) {
+				my $value = $axis->$method;
+				$_[0]->text("$value (Auto)");
+			}
+		},
+		onKeyDown => sub {
+			my ($self, $code, $key) = @_;
+			# Only check typed codes, in which case code >= 32
+			return if $code < 32;
+			# Screen what they typed for being a correct numerical entry
+			$self->clear_event() unless chr($code) =~ /[\d.+\-e]/i;
+		},
+		onKeyUp => sub {
+			my ($self, $code, $key) = @_;
+			return if $code < 32 && $key != kb::Backspace && $key != kb::Delete;
+			my $new_val = $self->text;
+			if (looks_like_number($new_val) and $val_is_good->($new_val)
+				and $axis->scaling->is_valid_extremum($new_val)
+			) {
+				# Change the actual axis value
+				$update_inline = 0;
+				$axis->$method($new_val) if defined $new_val;
+				$update_inline = 1;
+				
+				# Update the color to notify a good entry value
+				$self->backColor(cl::White);
+			}
+			else {
+				$self->backColor(0xffdcdc);
+				undef($new_val);
+			}
+			
+		},
+	);
+	use PDL::NiceSlice;
+	
+	$auto_button = $group_box->insert(Button =>
+		text => 'Autoscale',
+		place => { x => 395, y => $y_pos, height => 30, width => 100, anchor => 'sw' },
+		height => 30,
+		onClick => sub { $axis->$method(lm::Auto) },
+	);
+	$auto_button->enabled(!$is_auto);
+	
+	return $notification_idx;
+}
+
+sub insert_label_input {
+	my ($group_box, $axis) = @_;
+	$group_box->insert(Label =>
+		place => { x => 45, y => 40, height => 25, width => 60, anchor => 'sw' },
+		height => 30,
+		text => 'Label:',
+	);
+	my $label_text = $axis->label || '';
+	$group_box->insert(InputLine =>
+		text => $label_text,
+		place => { x => 110, y => 40, height => 30, width => 380, anchor => 'sw' },
+		height => 30,
+		onKeyUp => sub {
+			my $new_label = shift->text;
+			if ($new_label ne $label_text) {
+				$label_text = $new_label;
+				$axis->label($new_label);
+			}
+		},
+	);
+}
+
+sub insert_scaling_radios {
+	my ($group_box, $axis) = @_;
+	my $update_radios = 1;
+	my ($init_min, $init_max) = $axis->minmax;
+	my $linear_radio = $group_box->insert(Radio =>
+		place => { x => 80, y => 5, height => 30, width => 30, anchor => 'sw' },
+		height => 30,
+		onCheck => sub {
+			return unless $update_radios;
+			$update_radios = 0;
+			$axis->scaling(sc::Linear);
+			$update_radios = 1;
+		},
+		text => 'Linear Scaling',
+		checked => $axis->scaling eq sc::Linear ? 1 : 0,
+	);
+	
+	my $log_radio = $group_box->insert(Radio =>
+		place => { x => 275, y => 5, height => 30, width => 30, anchor => 'sw' },
+		height => 30,
+		onCheck => sub {
+			return unless $update_radios;
+			$update_radios = 0;
+			$axis->scaling(sc::Log);
+			$update_radios = 1;
+		},
+		text => 'Logarithmic Scaling',
+		checked => $axis->scaling eq sc::Log ? 1 : 0,
+	);
+	$log_radio->enabled(0) unless $init_max > 0 && $init_min > 0;
+	
+	my $bounds_notification = $axis->add_notification(ChangeBounds => sub {
+		# Can't go negative if log scaling is enabled, so negative means
+		# we must have linear scaling. As such, only enable/disable the
+		# log radio based on negative signs, don't change the radios
+		my ($min, $max) = $axis->minmax;
+		if ($min <= 0 or $max <= 0) {
+			$update_radios = 0;
+			$log_radio->enabled(0);
+			$update_radios = 1;
+		}
+		else {
+			$update_radios = 0;
+			$log_radio->enabled(1);
+			$update_radios = 1;
+		}
+	});
+	my $scaling_notification = $axis->add_notification(ChangeScaling => sub {
+		return unless $update_radios;
+		if ($axis->scaling eq sc::Linear) {
+			$update_radios = 0;
+			$linear_radio->check;
+			$update_radios = 1;
+		}
+		else {
+			$update_radios = 0;
+			$log_radio->check;
+			$update_radios = 1;
+		}
+	});
+	
+	return ($bounds_notification, $scaling_notification);
+}
+
+# Builds a modal window to set plotting properties
+sub set_properties_dialog {
+	my $self = shift;
+	
+	# If one already exists, bring it back to the front
+	if (exists $self->{prop_window}) {
+		$self->{prop_window}->select;
+		$self->{prop_window}->bring_to_front;
+		return;
+	}
+	
+	my $total_height = 0;
+	$self->{prop_window} = my $prop_win = Prima::Window->new(
+		text => 'Plot Properties', width => 500, height => 380,
+		visible => 0,
+	);
+	$prop_win->insert(Widget =>
+		pack => { side => 'top', fill => 'x' },
+		height => 10,
+	);
+	
+	# Title input
+	my $title_box = $prop_win->insert(GroupBox =>
+		pack => { side => 'top', fill => 'x', padx => 10 },
+		height => 50,
+		text => 'Title',
+	);
+	my $title_text = $self->title || '';
+	$title_box->insert(InputLine =>
+		text => $title_text,
+		place => {
+			x => 5, y => 5,
+			relwidth => 1,
+			width => -10,
+			anchor => 'sw',
+		},
+		onKeyUp => sub {
+			my $new_title = shift->text;
+			if ($new_title ne $title_text) {
+				$title_text = $new_title;
+				$self->title($new_title);
+			}
+		},
+	);
+	
+	my (@x_notifications, @y_notifications);
+	
+	# x axis input
+	$prop_win->insert(Widget =>
+		pack => { side => 'top', fill => 'x' },
+		height => 10,
+	);
+	my $x_box = $prop_win->insert(GroupBox =>
+		pack => { side => 'top', fill => 'x' },
+		height => 160,
+		text => 'X Axis',
+	);
+	push @x_notifications, insert_minmax_input($x_box, 'min', $self->x, 110);
+	push @x_notifications, insert_minmax_input($x_box, 'max', $self->x, 75);
+	insert_label_input($x_box, $self->x);
+	push @x_notifications, insert_scaling_radios($x_box, $self->x);
+	
+	# y axis input
+	$prop_win->insert(Widget =>
+		pack => { side => 'top', fill => 'x' },
+		height => 10,
+	);
+	my $y_box = $prop_win->insert(GroupBox =>
+		pack => { side => 'top', fill => 'x' },
+		height => 160,
+		text => 'Y Axis',
+	);
+	push @y_notifications, insert_minmax_input($y_box, 'min', $self->y, 110);
+	push @y_notifications, insert_minmax_input($y_box, 'max', $self->y, 75);
+	insert_label_input($y_box, $self->y);
+	push @y_notifications, insert_scaling_radios($y_box, $self->y);
+	
+	# Close button
+	$prop_win->insert(Widget =>
+		pack => { side => 'top', fill => 'x' },
+		height => 10,
+	);
+	my $close_button = $prop_win->insert(Button =>
+		text => 'Close',
+		onClick => sub { $prop_win->close },
+		pack => { side => 'right' }
+	);
+	
+	$prop_win->height(10 + 50 + 10 + 160 + 10 + 160 + 10 + 30);
+	
+	$prop_win->onClose(sub {
+		$self->x->remove_notification($_) foreach (@x_notifications);
+		$self->y->remove_notification($_) foreach (@y_notifications);
+		delete $self->{prop_window};
+		# Bring the figure back to the foreground
+		$self->select;
+		$self->bring_to_front;
+	});
+	
+	# Having finished building it, show the window
+	$prop_win->visible(1);
 }
 
 1;
@@ -856,7 +1371,7 @@ PDL::Graphics::Prima - an interactive plotting widget and library for PDL and Pr
  # --( Super simple line and symbol plots )--
  
  # Generate some data - a sine curve
- my $x = sequence(100) / 20;
+ my $x = sequence(100) / 20 + 1;
  my $y = sin($x);
  
  # Draw x/y pairs. Default x-value are sequential:
@@ -905,16 +1420,19 @@ PDL::Graphics::Prima - an interactive plotting widget and library for PDL and Pr
  # multiple DataSets and more plotting features:
  my $colors = pal::Rainbow()->apply($x);
  plot(
-     -lines         => ds::Pair($x, $y
-         , plotType => ppair::Lines
+     -lines       => ds::Pair($x, $y,
+         plotType => ppair::Lines
      ),
-     -color_squares => ds::Pair($x, $y + 1
-         , colors   => $colors,
-         , plotType => ppair::Squares(filled => 1)
+     -color_squares => ds::Pair($x, $y + 1,
+         colors   => $colors,
+         plotType => ppair::Squares(filled => 1),
      ),
      
-     x => { label   => 'Time' },
-     y => { label   => 'Sine' },
+     x => 'Time',
+     y => {
+         label   => 'Sine',
+         scaling => sc::Log,
+     },
  );
 
 =head1 WIDGET SYNOPSIS
@@ -944,21 +1462,23 @@ PDL::Graphics::Prima - an interactive plotting widget and library for PDL and Pr
 If you are new to PDL::Graphics::Prima, you should begin by reading the
 documentation for L<PDL::Graphics::Prima::Simple|PDL::Graphics::Prima::Simple/>.
 This module provides a simplified interface for quickly dashing off a few
-plots and offers stepping stones to create more complex plots. Depending on
-your plotting needs, you may not need anything more complicated than
-L<PDL::Graphics::Prima::Simple|PDL::Graphics::Prima::Simple/>. However,
-PDL::Graphics::Prima offers much greater flexibility and interactivity than
-the options available in the Simple interface, so once you feel comfortable,
-you should come back to this manual page and learn how to create and utilize
-Plot widgets in conjunction with the L<Prima GUI toolkit|Prima/>.
+plots and offers stepping stones to create more complex plots. Often, the
+simple interface is sufficient for my simple plotting needs. However,
+PDL::Graphics::Prima is actually a widget in the L<Prima GUI toolkit|Prima/>.
+If you find that you need to interact more directly with your data and its
+visualization, you can build stand-alone GUI applications with the necessary
+interaction.
+
+The documentation in this file explains how to use PDL::Graphics::Prima as a
+plotting widget.
 
 =head1 DESCRIPTION
 
 PDL::Graphics::Prima is a plotting library for 2D data visualization. The
 core of this library is a Plot widget that can be incorporated into Prima
-applications. Although the library is capable of producing nice looking
-static figures, its killer feature is the GUI environment in which it
-belongs. L<Prima> provides an array of useful interactive widgets and a
+applications. The library produces publication quality static figures, but
+its true potential lies in using it as a component in a GUI application.
+L<Prima> provides an array of useful interactive widgets and a
 simple but powerful event-based programming model. PDL::Graphics::Prima
 provides a sophisticated plotting library within this GUI framework, letting
 you focus on what you want to visualize rather than the details of how you
@@ -989,9 +1509,8 @@ for placing the plot within a larger parent widget using
 L<basic geometry management|Prima::Widget/Geometry>, or the Tk-like
 L<pack|Prima::Widget::pack/> or L<place|Prima::Widget::place/> specifiers.
 In fact, Prima allows any widget to serve as the container for other widgets,
-so you can insert other widgets (i.e. other plots) into a plot. This serves
-as a simple mechanism for creating sub-plots, though beware: sub-plots are
-not yet correctly rendered in raster or postscript file output.
+so you can insert other widgets (i.e. other plots) into a plot. This is how
+you create figure insets.
 
 If you want to add new content to a plot or remove content from a plot, you
 do this by manipulating the L<dataSet collection|/dataSets>. Axis
@@ -1016,15 +1535,98 @@ Sets or gets the string with the figure's title text. To remove an already
 set title, specify an empty string or the undefined value. Changing this
 issues a L<ChangeTitle> event.
 
+=head2 titleFont
+
+Sets or gets a set of key/value pairs that indicate how the title font should
+differ from the widget's font. For example, if you want to have your plot title
+rendered in Arial but have all other font properties the same, you could say
+
+ $plot->titleFont( name => 'Arial' );
+
+If you later want to set the style to underlined, you could say this:
+
+ $plot->titleFont( $plot->titleFont, style => fs::Underlined );
+
+Notice that I call C<< $plot->titleFont >> as an I<argument> to the method.
+This ensures that the font formatting I have already specified (the Arial font
+name) is not wiped out with the font update.
+
+In addition to the normal font properties (as discussed in L<the Fonts section
+of Prima::Drawable|Prima::Drawable/Fonts>, there are also a couple of important
+extensions for sizes that I have implemented explicitly for title fonts. You can
+specify dynamic font height, size, and width using strings with special
+suffixes. These suffixes include:
+
+ <number>%height
+ <number>%width
+ <number>x
+
+The C<%height> suffix will compute the height, width, or size to be a percentage
+of the widget's height, so if you widget is 100 pixels tall, a height
+specification of C<10%height> will cause your font height to be 10 pixels. If
+you resize your widget to 200 pixels, the title height will automatically scale
+to 20 pixels. The third specification specifies a multiple of the widget's font
+value, so a height of C<1.5x> will be 1.5 times higher than the widget's default
+font size. This way, if you change the size of the font (and therefore the axis
+label and tick label sizes), your title font will automatically adjust, too.
+
+The default titleFont is C<< height => '10%height' >>.
+
+Note that Prima's font system does not allow for arbitrary font sizes, so if you
+pick a font size of 18 pixels, it may only be able to find a means for rendering the
+font as 19 pixels. But usually, Prima can get pretty close.
+
 =head2 titleSpace
 
-Sets or gets the number of pixels that would be allocated for the title, if
-the title is set. Changing this issues a L<ChangeTitle> event, even if the
-title text is not presently being displayed.
+Sets or gets the titleSpace property for the plot widget. You can set the
+titleSpace property with an integer, a subref, a string, or a hashref. The
+string will be parsed into a hashref, so the return value when you query this
+property as a getter is going to be an integer, a subref, or a hashref.
 
-Note: This is a fairly lame mechanism for specifying the space needed for the
-title. Expect this to change, for the better, in the future. Please drop me
-a note if you use this and need any such changes to be backwards compatible.
+If you specify an integer, that will be the number of pixels used to display
+the title. This requres the fewest calculations when rendering, and makes sense
+if you set the font's height or size to an explicit value rather than a dynamic
+one. But this is also the least adaptable way to specify the titleSpace. You
+could use this as
+
+ $plot->titleSpace(50);
+
+On the other extreme, you can specify a subref. The subref should accept the
+widget as its sole argument and compute and return the titleSpace dynamically.
+For example:
+
+ # Set the titleSpace to be the square root of the widget height
+ $plot->titleSpace( sub {
+     my $widget = shift;
+     return sqrt($widget->height);
+ });
+
+In the middle, you can specify a dynamic titleSpace with a string representing
+a sum of values with special units. An example of such a string looks like this:
+
+ $plot->titleSpace('5% + 1line - 10pixels')
+
+This would lead to a dynamic height of 5% of the canvas height plus the font
+height less 10 pixels. You could also specify this with a hashref of
+
+ $plot->titleSpace({
+     canvas_percent => 0.05,
+     lines          => 1,
+     pixels         => -10,
+ });
+
+Notice that negative and positive values are allowed, and it is quite possible
+that your dynamic calculation will end up with a net negative value (which is
+not allowed if you specify a bare integer number of pixels). So, if your title
+is just not visible, it may be because you have a faulty titleSpace
+specification.
+
+The default titleSpace is C<1line>.
+
+Note that although string speficifications are parsed only once (into a hashref
+representation), these dynamic sizes lead to more calculations than a bare pixel
+height or subref. If your goal is to have a title with fast rendering times,
+which can be important for animations, you should probably avoid dynamic sizes.
 
 =head2 x, y
 
@@ -1050,8 +1652,8 @@ axis and use the new name:
  $plot->x->max(20);
 
 This is a L<feature of Prima|Prima::Object/bring>. Eventually, when multiple
-x- and y-axes are allowed, this will allow us to transparently access them by
-name just like we access the single x- and y-axes by name at the moment.
+x- and y-axes are allowed, this will allow you to transparently access them by
+name just like you can access the single x- and y-axes by name at the moment.
 
 =head2 dataSets
 
@@ -1091,10 +1693,10 @@ Returns a L<Prima::Image> of the plot with same dimensions as the plot widget.
 
 =head2 save_to_postscript
 
-Saves the plot with current axis limits to a postscript figure. This method
-takes an optional filename argument. If no filename is specified, it pops-up
-a dialog box to ask the user where and under what name they want to save the
-postscript figure.
+Saves the plot with current axis limits to an encapsulated postscript figure.
+This method takes an optional filename argument. If no filename is specified,
+it pops-up a dialog box to ask the user where and under what name they want
+to save the postscript figure.
 
 This functionality will likely be merged into save_to_file, though this
 method will remain for backwards compatibility.
@@ -1134,83 +1736,81 @@ after a brief period (defaults to 30 milliseconds).
 Called when the dataSet container changes (not the datasets themselves, but
 the whole container). 
 
-=head1 RESPONSIBILITIES
+=head1 DRAWING A PLOT TO AN IMAGE
 
-The Plot object itself has to coordinate a number of sub-systems in order to get
-a functioning plot. As these responsiblities are not always clear even to their
-author, here is a list of what the plot is responsible for handling.
+Most L<methods|PDL::Graphics::Prima/METHODS> that are not properties provide
+means for generating images from a plot. Sometimes it is useful to draw a plot
+on a pre-formed image. Let's look at the different machanisms for doing this.
 
-=over
+For a point of comparison, if you simply want a L<raster image|Prima::Image/>
+object from a plot, you should simply obtain it from the plot object with
+the L<get_image|PDL::Graphics::Prima/get_image> method:
 
-=item knowing the plot title
+ my $image = $plot->get_image;
 
-Although the axes are responsible for knowing the axis labels, the plot itself
-is responsible for knowing the plot title and managing the space necessary for
-it.
+However, what if you already have an L<image object|Prima::Image/> upon which
+you want to draw your plot? There are at least two circumstances when you might
+want to do this: first if you are creating many raster images from plots and
+want to avoid memory re-allocations, and second if you have in image with some
+annotations on it already. (Beware the first reason: it is likely a premature
+optimization.) To draw the plot on an already-formed image, you can use the
+L<draw_image|PDL::Graphics::Prima/draw_image> method like so:
 
-=item initiating drawing operations
+ $some_image->begin_paint;
+ $some_image->clear;
+ ... other painting here ...
+ $plot->draw_image($some_image);
+ ... more painting ...
+ $some_image->end_paint;
 
-The drawing of the axes, data, and plot title are all coordinated, ultimately,
-by the plot object.
+The L<draw_image|PDL::Graphics::Prima/draw_image> method is the preferred way to
+draw a plot onto a pre-existing image. It gives you a bit more control on how
+the painting is invoked: for example, it does not clear the canvas for you. But
+with the increased control comes increased manual manipulation: you need to set
+the image in the paint-enabled state before invoking it, and you need to clear
+the canvas before getting started.
 
-=item managing the dataset container
+There is one more means for rendering a plot on an image, which arises if you
+are invoking the L<Paint Event|Prima::Widget/Paint> from an arbitrary widget
+into a canvas. In that case, you should be able to say this:
 
-The plot does not manage the datasets directly, but it owns the dataset
-container that is responsible for providing an API to the container.
+ $some_widget->notify('Paint', $some_image);
+ # This will set up a notification, which will not proces
+ # until the next tick in the event loop. If you need the
+ # image to be updated immediately, invoke a tick:
+ $::application->yield;
 
-=item handling user interaction
+Painting on an image by invoking the L<Paint Event|Prima::Widget/Paint> is
+similar to the L<draw_image|PDL::Graphics::Prima/draw_image> method, but it
+also ensures that your image is in a paint-enabled state, clears the canvas,
+and returns the image in a paint-disabled state if that's how it started.
+This is usually what you want and expect when invoking the Paint event on a
+canvas.
 
-All user interaction (which at the moment is limited to mouse interaction) is
-handled by the plot object. Drag and zoom events ultimately lead to changes in
-the axes' minima and maxima (the axes are responsible for these pieces of
-information), but these changes are initiated through the plot object.
+=head2 Caveat: Fonts
 
-=item file generation and clipboard interaction
+Font handling is one of the areas in PDL::Graphics::Prima that is slated to see
+some improvement. Until that happens, you will notice that the font size in your
+output image is probably not quite what you expect, and if you change the font
+face, that may not match, either. To fix the font issues for now, you can set
+your image's font attributes based on the widget's, either at image construction
+time:
 
-Requests for raster and postscript output as well as copying the image to
-the clipboard are the responsibility of the plot. 
+ $image = Prima::Image->new(
+   width => $width,
+   height => $height,
+   font => $plot->font,
+ );
 
-=item initiating autoscaling
+or later with the font setter:
 
-Autoscaling for either of the axes is initiated by a call to the plot object's
-C<compute_min_max_for>, which computes the minima and maxima for a given axis.
-Most of the calculations necessary for this operation are performed by the
-dataset and the underlying plotTypes, but they are coordinated and synthesized
-by the plot object.
-
-=back
-
-Many things are B<not> the responsiblity of the plot object but are instead
-handled by other objects, which are themselves usually held by the plot.
-
-=over
-
-=item tick and axis details
-
-All axis and tick details, including minima and maxima, scaling, tick mark
-locations, axis labels, and conversion from real x and y data values to pixel
-offsets are handled by the axis objects. (The scaling, actually, is managed
-by the scaling object or class that is held by the axis.)
-
-=item managing datasets or plotTypes
-
-The datasets are managed by the dataset collection hashref defined in
-L<PDL::Graphics::Prima::DataSet>. Any access to the datasets (outside of 
-declaring them directly in the constructor, which is a special-case) is managed
-through the dataSet collection. Any access to the specific plot types are 
-themselves handled by the datasets themselves.
-
-=back
+ $image->font($plot->font);
 
 =head1 TODO
 
 This is not a perfect plotting library. Here are some of the particularly
 annoying issues with it, which I hope to resolve. This is part warning to
-you, gentle reade, and part task list for me.
-
-Proper drawing of child widgets. Although subplots and insets can be added
-to plot widget, they cannot be drawn to output files like postscript or
-raster formats until this functionality is available.
+you, gentle reader, and part task list for me.
 
 If Prima had an SVG output, I could easily add it as a figure output option.
 
@@ -1226,9 +1826,6 @@ quickly. This would require some sort of interface such as
 I have hit substantial performance problems when B<adding> over 20 datasets. 
 The actual drawing of those datasets and mouse interation is fine, but the
 process of just adding them to the plot can be quite sluggish.
-
-There is essentially no way to tweak the title font, and the means for
-specifying the title space is stupid and nearly useless.
 
 The exact pixel position of the left margin depends on the size of the y-tick
 labels, which can change during the process of zooming in or out. This means
@@ -1333,15 +1930,19 @@ plots
 
 =head1 LICENSE AND COPYRIGHT
 
-Portions of this module's code are copyright (c) 2011 The Board of Trustees at
-the University of Illinois.
+Unless otherwise stated, all contributions in code and documentation are
+copyright (c) their respective authors, all rights reserved.
+
+Portions of this module's code are copyright (c) 2011 The Board of
+Trustees at the University of Illinois.
 
 Portions of this module's code are copyright (c) 2011-2013 Northwestern
 University.
 
-This module's documentation are copyright (c) 2011-2013 David Mertens.
+Portions of this module's code are copyright (c) 2013-2014 Dickinson
+College.
 
-All rights reserved.
+This module's documentation is copyright (c) 2011-2014 David Mertens.
 
 This module is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.
