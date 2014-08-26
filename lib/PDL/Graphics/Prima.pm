@@ -4,7 +4,8 @@ use warnings;
 ############################################################################
                        package PDL::Graphics::Prima;
 ############################################################################
-our $VERSION = 0.14;
+our $VERSION = 0.15;   # do not delete these spaces; run update-version.pl
+                       # if you change this
 
 # Add automatic support for PDL terminal interactivity
 use PDL::Graphics::Prima::ReadLine;
